@@ -118,7 +118,9 @@ fun JourneyNextJourneyScreen(
     onBack: () -> Unit = {},
     onSubmit: (Set<Int>) -> Unit = {}
 ) {
-    var selected by remember { mutableStateOf(setOf(1)) }
+    // Web looking-forward starts with nothing selected — it is multi-select
+    // and submission does not require a choice.
+    var selected by remember { mutableStateOf(setOf<Int>()) }
     val themes = listOf(
         "Loss & Grief",
         "Identity & Worth",

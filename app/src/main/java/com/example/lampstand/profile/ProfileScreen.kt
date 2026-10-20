@@ -96,7 +96,6 @@ fun ProfileScreen(
     onItemSelected: (Int) -> Unit = {},
     onBack: () -> Unit = {},
     onPersonalInfoClick: () -> Unit = {},
-    onManagePasswordClick: () -> Unit = {},
     onLogOutClick: () -> Unit = {}
 ) {
     Column(
@@ -200,12 +199,8 @@ fun ProfileScreen(
                 onClick = onPersonalInfoClick
             )
             HorizontalDivider(thickness = 1.dp, color = Color(0xFF3A3A3A))
-            ProfileRow(
-                title = "Manage Password",
-                subtitle = "Manage your account password",
-                onClick = onManagePasswordClick
-            )
-            HorizontalDivider(thickness = 1.dp, color = Color(0xFF3A3A3A))
+            // "Manage Password" intentionally absent — Convex auth is OTP/Google
+            // only, so the web profile page hides it too (app/profile/page.tsx).
             ProfileRow(
                 title = "Log Out",
                 subtitle = "Sign out of your account.",

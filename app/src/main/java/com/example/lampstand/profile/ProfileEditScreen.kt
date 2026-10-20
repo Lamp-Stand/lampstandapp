@@ -107,6 +107,10 @@ fun ProfileEditScreen(
     initialFirstName: String = "John",
     initialLastName: String = "Doe",
     initialPhone: String = "+234 801 0000 000",
+    initialReminderEnabled: Boolean = false,
+    initialReminderSlot: Int = 0,
+    initialReminderHour: Int = -1,
+    initialReminderMinute: Int = -1,
     onItemSelected: (Int) -> Unit = {},
     onBack: () -> Unit = {},
     onSave: (firstName: String, lastName: String, phone: String, reminderEnabled: Boolean, slot: Int, times: Map<Int, Pair<Int, Int>>) -> Unit = { _, _, _, _, _, _ -> }
@@ -117,9 +121,19 @@ fun ProfileEditScreen(
     val initialSplit = remember(initialPhone) { matchCountryForPhone(initialPhone, defaultCountry()) }
     var country by remember(initialPhone) { mutableStateOf(initialSplit.first) }
     var phone by remember(initialPhone) { mutableStateOf(initialSplit.second) }
-    var reminderEnabled by remember { mutableStateOf(false) }
-    var selectedSlot by remember { mutableStateOf(1) }
-    var times by remember { mutableStateOf(defaultReminderTimes()) }
+    var reminderEnabled by remember { mutableStateOf(initialReminderEnabled) }
+    var selectedSlot by remember { mutableStateOf(initialReminderSlot) }
+    // Seed the saved slot's clock time over the slot default, so reopening the
+    // screen shows the reminder the user actually set (local-only value).
+    var times by remember {
+        mutableStateOf(
+            defaultReminderTimes().let { base ->
+                if (initialReminderHour in 0..23 && initialReminderMinute in 0..59) {
+                    base.toMutableMap().apply { put(initialReminderSlot, initialReminderHour to initialReminderMinute) }
+                } else base
+            }
+        )
+    }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 

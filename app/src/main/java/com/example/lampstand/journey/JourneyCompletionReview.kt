@@ -145,10 +145,7 @@ fun JourneyCompletionReviewScreen(
     var q3 by remember { mutableStateOf(-1) }
     var notes by remember { mutableStateOf("") }
 
-    // Submit fires when all 3 radio groups answered (notes optional).
-    androidx.compose.runtime.LaunchedEffect(q1, q2, q3) {
-        if (q1 != -1 && q2 != -1 && q3 != -1) onSubmit(q1, q2, q3, notes)
-    }
+    // Web parity: advancing requires the Finish tap, not auto-submit.
 
     Column(
         modifier = Modifier
@@ -198,7 +195,7 @@ fun JourneyCompletionReviewScreen(
                     )
                 }
                 Text(
-                    "   DAY7/7",
+                    "DAY 7/7",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Navy
@@ -214,7 +211,7 @@ fun JourneyCompletionReviewScreen(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "We'd love to hear from you. This takes under two minutes",
+                "We'd love to hear from you. This takes under two minutes.",
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
                 color = Color(0xFF535353)
@@ -257,7 +254,7 @@ fun JourneyCompletionReviewScreen(
             )
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                "\"Is there anything you'd like to share about your experience — what helped, what didn't, or what you're still carrying?",
+                "Is there anything you'd like to share about your experience — what helped, what didn't, or what you're still carrying?",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 lineHeight = 17.sp,
@@ -267,7 +264,7 @@ fun JourneyCompletionReviewScreen(
             OutlinedTextField(
                 value = notes,
                 onValueChange = { notes = it },
-                placeholder = { Text("Share my thoughts..", color = Color(0xFFB3B3B3), fontSize = 13.sp) },
+                placeholder = { Text("Share my thoughts...", color = Color(0xFFB3B3B3), fontSize = 13.sp) },
                 minLines = 4,
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(

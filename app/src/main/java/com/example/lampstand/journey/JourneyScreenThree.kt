@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -35,14 +36,26 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.lampstand.R
-import com.example.lampstand.dashboard.BottomNavBar
 import com.example.lampstand.ui.theme.LampStandTheme
 
 @Composable
 fun JourneyScreenThree(
-    onItemSelected: (Int) -> Unit = {},
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onNext: () -> Unit = {},
+    // Web: top-left back links to path detail; footer arrow steps back
+    // a section.
+    onBackToPath: () -> Unit = {},
+    // Web InsightSection: coreInsight = first sentence of insightText,
+    // paragraphs = [insightText] or "Insight coming soon."
+    insightText: String? = null
 ) {
+    // Same split the web does: insightText.split(".")[0] + "."
+    val coreInsight = insightText
+        ?.takeIf { it.isNotBlank() }
+        ?.split(".")?.firstOrNull()
+        ?.let { "$it." }
+        ?: "God is Compassionate & Gracious"
+    val insightBody = insightText?.takeIf { it.isNotBlank() } ?: "Insight coming soon."
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -67,7 +80,7 @@ fun JourneyScreenThree(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = onBack
+                        onClick = onBackToPath
                     )
             ) {
                 Icon(
@@ -126,29 +139,26 @@ fun JourneyScreenThree(
                     modifier = Modifier.width(226.dp)
                 )
             }
-            // Second frame: 338 x 566, top 226, left 17, gap 59.
-            // (First frame ends 190 + 36 gap = 226.)
+            // Second frame: card + body + nav; wraps for live text.
             Column(
                 verticalArrangement = Arrangement.spacedBy(59.dp),
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 17.dp, top = 226.dp)
+                    .padding(start = 17.dp, top = 226.dp, bottom = 40.dp)
                     .width(338.dp)
-                    .height(566.dp)
             ) {
-                // E1: 338 x 477, gap 30.
+                // E1: card + body, gap 30.
                 Column(
                     verticalArrangement = Arrangement.spacedBy(30.dp),
-                    modifier = Modifier
-                        .width(338.dp)
-                        .height(477.dp)
+                    modifier = Modifier.width(338.dp)
                 ) {
-                    // E1E1 card: 338 x 107, radius 4, 3px left
+                    // E1E1 card: radius 4, 3px left
                     // border #335E78, background #335E78 at 10%.
+                    // heightIn lets two-line core insights fit.
                     Box(
                         modifier = Modifier
                             .width(338.dp)
-                            .height(107.dp)
+                            .heightIn(min = 107.dp)
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color(0x1A335E78))
                     ) {
@@ -157,7 +167,7 @@ fun JourneyScreenThree(
                             modifier = Modifier
                                 .align(Alignment.CenterStart)
                                 .width(3.dp)
-                                .height(107.dp)
+                                .fillMaxHeight()
                                 .clip(
                                     RoundedCornerShape(
                                         topStart = 4.dp,
@@ -204,9 +214,9 @@ fun JourneyScreenThree(
                                 .height(15.dp)
                         )
                         // E1E1E3: 226 wide, top 46, left 17, 20/26,
-                        // #184159. Wraps (two 26dp lines need 52).
+                        // #184159. Live core insight (first sentence).
                         Text(
-                            text = "God is Compassionate & Gracious",
+                            text = coreInsight,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.SemiBold,
                             lineHeight = 26.sp,
@@ -219,19 +229,15 @@ fun JourneyScreenThree(
                                 .heightIn(min = 42.dp)
                         )
                     }
-                    // E1E2: body 338 x 340 after the 30 gap
-                    // (107 + 30 + 340 = 477 e1 frame).
+                    // E1E2: live insight body (web paragraphs = [insightText]).
                     Text(
-                        text = "The Hebrew word \u2018rachum\u2019 signifies a deep, parental-like womb-compassion. This reveals that God\u2019s primary posture towards His creation is one of tender care.\n\nIt highlights a desire to help those in need, regardless of their merit, showing that His grace is an overflowing extension of His innate nature.\n\nThis passage reveals a God who meets His people not with frustration or pressure, but with compassion. Instead of demanding that they be stronger, smarter, or more in control, He invites them to rest\u2014because He understands their fear. His command to \u201Cbe still\u201D is not a rebuke; it is comfort. It shows a God who sees our striving and gently calls us into His peace.",
+                        text = insightBody,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Normal,
                         lineHeight = 20.sp,
                         letterSpacing = 0.sp,
                         color = Color(0xFF535353),
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-                        modifier = Modifier
-                            .width(338.dp)
-                            .height(340.dp)
+                        modifier = Modifier.width(338.dp)
                     )
                 }
                 // E2 nav row 59dp below e1: prev + dots + next.
@@ -293,7 +299,7 @@ fun JourneyScreenThree(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
-                                onClick = {}
+                                onClick = onNext
                             )
                     ) {
                         Icon(
@@ -307,20 +313,7 @@ fun JourneyScreenThree(
                     }
                 }
             }
-            // Bottom free space: 24dp after the second frame (ends 792).
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 17.dp, top = 792.dp)
-                    .width(338.dp)
-                    .height(24.dp)
-            )
         }
-
-        BottomNavBar(
-            selectedIndex = 2,
-            onItemSelected = onItemSelected
-        )
     }
 }
 

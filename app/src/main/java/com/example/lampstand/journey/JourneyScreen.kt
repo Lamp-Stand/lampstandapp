@@ -2,10 +2,13 @@ package com.example.lampstand.journey
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,12 +37,23 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.lampstand.R
-import com.example.lampstand.dashboard.BottomNavBar
 import com.example.lampstand.ui.theme.LampStandTheme
 
 @Composable
 fun JourneyScreen(
-    onItemSelected: (Int) -> Unit = {}
+    // Web S0 back button → path detail (/my-journey/[id]).
+    onBack: () -> Unit = {},
+    onNext: () -> Unit = {},
+    // Live session (web TodaysJourneySection). Defaults = previous hardcoded UI.
+    sessionTitle: String = "Finding Stillness",
+    scriptureVerse: String = "“Be still, and know that I am God; I will be exalted among the nations, I will be exalted in the earth.”",
+    scriptureReference: String = "Psalm 46:10 (NIV)",
+    introText: String = "Finding Stillness invites you to quiet your heart, slow your mind, and become aware of God’s steady presence in the midst of life’s noise.",
+    dayLabel: String = "TODAY’S JOURNEY",
+    // Web 5-section pager: 0 Today's Journey · 1 Context · 2 Insight
+    // · 3 Application · 4 Guided Prayer.
+    currentSection: Int = 0,
+    onDotClick: (Int) -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -52,6 +67,28 @@ fun JourneyScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
+            // Back button: 30 x 30, top 40, left 19 — web S0 back → path detail.
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 19.dp, top = 40.dp)
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color.White)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onBack
+                    )
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_arrow_back),
+                    contentDescription = "Back",
+                    tint = Color(0xFF335E78),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
             // Hero image: 335 x 148 — top 88, 20 both sides
             // (fillMaxWidth minus 40), 36 gap to the frame below (ends 236).
             Image(
@@ -83,7 +120,7 @@ fun JourneyScreen(
                 )
                 // Title: 247 x 14, Inter 600 SemiBold 12/14, #92ADBE.
                 Text(
-                    text = "TODAY\u2019S JOURNEY",
+                    text = dayLabel,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     lineHeight = 14.sp,
@@ -98,7 +135,7 @@ fun JourneyScreen(
             // Heading: 247 x 33, top 291, left 20,
             // Inter 600 SemiBold 28/32, #184159.
             Text(
-                text = "Finding Stillness",
+                text = sessionTitle,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.SemiBold,
                 lineHeight = 32.sp,
@@ -111,18 +148,19 @@ fun JourneyScreen(
                     .width(247.dp)
                     .height(33.dp)
             )
-            // Frame 1: 335 x 687, top 338, left 20, gap 32.
+            // Frame 1: intro + scripture card + nav row.
+            // Web S0 paragraphs[] is empty in live mode, so the nav
+            // row sits right after the card (no mock body text).
             Column(
                 verticalArrangement = Arrangement.spacedBy(32.dp),
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 20.dp, top = 338.dp)
+                    .padding(start = 20.dp, top = 338.dp, bottom = 40.dp)
                     .width(335.dp)
-                    .height(687.dp)
             ) {
                 // Intro: 335 x 60, Inter 400 Regular 14/20, #535353.
                 Text(
-                    text = "Finding Stillness invites you to quiet your heart, slow your mind, and become aware of God\u2019s steady presence in the midst of life\u2019s noise.",
+                    text = introText,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Normal,
                     lineHeight = 20.sp,
@@ -186,7 +224,7 @@ fun JourneyScreen(
                         ) {
                             // Verse: 300 x 60, Inter 400 Regular 14/20, #535353.
                             Text(
-                                text = "\u201CBe still, and know that I am God; I will be exalted among the nations, I will be exalted in the earth.\u201D",
+                                text = scriptureVerse,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Normal,
                                 lineHeight = 20.sp,
@@ -198,7 +236,7 @@ fun JourneyScreen(
                             )
                             // Reference: 300 x 18, Inter 600 SemiBold 14/18, #335E78.
                             Text(
-                                text = "Psalm 46:10 (NIV)",
+                                text = scriptureReference,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 lineHeight = 18.sp,
@@ -212,33 +250,9 @@ fun JourneyScreen(
                         }
                     }
                 }
-                // Body frame: 335 x 436, gap 86.
-                // 60 intro + 32 + 127 card + 32 + 436 body = 687 frame.
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(86.dp),
-                    modifier = Modifier
-                        .width(335.dp)
-                        .height(436.dp)
-                ) {
-                    // Body: 335 x 320, Inter 400 Regular 14/20, #535353.
-                    // Fixed 320 per spec so the nav row and 201 space
-                    // below land exactly (320 + 86 + 30 = 436).
-                    Text(
-                        text = "When God says, \u201CBe still,\u201D He is inviting you to release your grip on outcomes, on worries, on the need to figure everything out. Stillness is an act of trust. It is choosing to pause long enough to remember that God is both powerful and present\u2014that He holds your story, sees your situation, and is not overwhelmed by what overwhelms you. In stillness, we stop carrying what He has already offered to carry.\n\nAs you walk through this session, allow your heart to slow down. Let the noise fall away long enough to hear the truth again: God is near, God is steady, and God is God. Stillness is not weakness; it is the posture that makes room for His peace to settle in your soul.",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Normal,
-                        lineHeight = 20.sp,
-                        letterSpacing = 0.sp,
-                        color = Color(0xFF535353),
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-                        modifier = Modifier
-                            .width(335.dp)
-                            .height(320.dp)
-                    )
-                    // Nav row 86dp below body: 215 x 30, space-between,
-                    // 120dp left padding (120 + 215 = 335, flush right).
-                    // 320 body + 86 + 30 nav = 436 body frame.
-                    Row(
+                // Nav row: 215 x 30, flush right — dots + next arrow
+                // (web footer: dots centered, arrow right).
+                Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier
@@ -261,8 +275,13 @@ fun JourneyScreen(
                                         .size(10.dp)
                                         .clip(RoundedCornerShape(20.dp))
                                         .background(
-                                            if (index == 0) Color(0xFF335E78)
+                                            if (index == currentSection) Color(0xFF335E78)
                                             else Color(0xFFB3B3B3)
+                                        )
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                            onClick = { onDotClick(index) }
                                         )
                                 )
                             }
@@ -275,25 +294,15 @@ fun JourneyScreen(
                             modifier = Modifier
                                 .size(24.dp)
                                 .rotate(180f)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = onNext
+                                )
                         )
                     }
-                }
             }
-            // Bottom free space: 201dp after Frame 1 (ends 1025),
-            // so the last frame rests 201 above the bottom bar.
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 20.dp, top = 1025.dp)
-                    .fillMaxWidth()
-                    .height(201.dp)
-            )
         }
-
-        BottomNavBar(
-            selectedIndex = 2,
-            onItemSelected = onItemSelected
-        )
     }
 }
 

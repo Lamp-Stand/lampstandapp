@@ -178,9 +178,9 @@ fun JourneyReviewScreen(
     val options = listOf(
         ReviewOption(
             imageRes = R.drawable.sad_solid,
-            title = "It didn\u2019t connect",
+            title = "Didn't connect",
             titleWidth = 109,
-            subtitle = "It wasn\u2019t what I needed today",
+            subtitle = "It wasn't what I needed today",
             subtitleWidth = 168
         ),
         ReviewOption(
@@ -262,10 +262,10 @@ fun JourneyReviewScreen(
                         .height(14.dp)
                 )
             }
-            // M3: 226 wide, top 148, 20/26, #184159. Wraps so
-            // line 2 never clips (two 26dp lines need 52, not 42).
+            // Web: the h1 is only "How did today's session land for you?" —
+            // there is no "One quick question before you go" heading above it.
             Text(
-                text = "One quick question before you go",
+                text = "How did today's session land for you?",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.SemiBold,
                 lineHeight = 26.sp,
@@ -273,31 +273,16 @@ fun JourneyReviewScreen(
                 color = Color(0xFF184159),
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 19.dp, top = 148.dp)
-                    .width(226.dp)
-            )
-            // M4: 335 x 17, top 255, 14/18, #184159.
-            Text(
-                text = "How did today\u2019s session land for you?",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                lineHeight = 18.sp,
-                letterSpacing = 0.sp,
-                color = Color(0xFF184159),
-                maxLines = 1,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 20.dp, top = 255.dp)
+                    .padding(start = 20.dp, top = 148.dp)
                     .width(335.dp)
-                    .height(17.dp)
             )
-            // M5: 336 x 216, top 298, left 20, gap 12.
+            // M5: 336 x 216, top 242 (web leaves 42 after the h1), left 20, gap 12.
             // 3 x 64 cards + 2 x 12 gaps = 216.
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 20.dp, top = 298.dp)
+                    .padding(start = 20.dp, top = 242.dp)
                     .width(336.dp)
                     .height(216.dp)
             ) {
@@ -312,64 +297,63 @@ fun JourneyReviewScreen(
                     )
                 }
             }
-            // M6: optional prompt, below cards.
-            Text(
-                text = "Is there anything else you want to tell us about today? (Optional)",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                lineHeight = 18.sp,
-                color = Color(0xFF184159),
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 20.dp, top = 538.dp)
-                    .width(316.dp)
-            )
-            // M7: thoughts input.
-            OutlinedTextField(
-                value = thoughts,
-                onValueChange = { thoughts = it },
-                placeholder = { Text("Your thoughts..", color = Color(0xFFB3B3B3), fontSize = 14.sp) },
-                minLines = 5,
-                maxLines = 6,
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF92ADBE),
-                    unfocusedBorderColor = Color(0xFFD0D7DC),
-                    focusedContainerColor = Color.White,
-                    unfocusedContainerColor = Color.White
-                ),
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 20.dp, top = 610.dp)
-                    .width(336.dp)
-                    .height(150.dp)
-            )
-            // M8: Back to Home CTA.
+            // Web only renders the optional thoughts block once an option
+            // is chosen (`{selected && (…)}`).
+            if (selected >= 0) {
+                // M6: optional prompt, below cards.
+                Text(
+                    text = "Is there anything else you want to tell us about today? (Optional)",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 18.sp,
+                    color = Color(0xFF184159),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 20.dp, top = 482.dp)
+                        .width(316.dp)
+                )
+                // M7: thoughts input.
+                OutlinedTextField(
+                    value = thoughts,
+                    onValueChange = { thoughts = it },
+                    placeholder = { Text("Your thoughts..", color = Color(0xFFB3B3B3), fontSize = 14.sp) },
+                    minLines = 5,
+                    maxLines = 6,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF92ADBE),
+                        unfocusedBorderColor = Color(0xFFD0D7DC),
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 20.dp, top = 554.dp)
+                        .width(336.dp)
+                        .height(150.dp)
+                )
+            }
+            // M8: feedback CTA (web "Continue to Completed" → /completed).
             Button(
                 onClick = onBackToHome,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF335E78)),
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 20.dp, top = 784.dp)
+                    .padding(start = 20.dp, top = 728.dp)
                     .width(336.dp)
                     .height(52.dp)
             ) {
-                Text("Back to Home", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Text("Continue to Completed", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             }
             // Bottom breathing room so CTA never sits under navbar.
             Spacer(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(top = 836.dp)
+                    .padding(top = 780.dp)
                     .height(40.dp)
             )
         }
-
-        BottomNavBar(
-            selectedIndex = 2,
-            onItemSelected = onItemSelected
-        )
     }
 }
 

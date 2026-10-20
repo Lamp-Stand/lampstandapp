@@ -38,7 +38,7 @@ import com.example.lampstand.ui.theme.LampStandTheme
  */
 @Composable
 fun CategoryCard(
-    title: String = "Fear and Anxiety",
+    title: String = "Fear & Anxiety",
     subtitle: String = "6 formation paths",
     badge: String = "NOW AVAILABLE - START YOUR JOURNEY",
     buttonText: String = "View paths",
@@ -62,7 +62,7 @@ fun CategoryCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Image(
-                painter = painterResource(id = R.drawable.shipsail),
+                painter = painterResource(id = R.drawable.available),
                 contentDescription = title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier

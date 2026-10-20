@@ -22,9 +22,11 @@ import com.example.lampstand.ui.theme.LampStandTheme
 
 @Composable
 fun PathsScreen(
+    onBack: () -> Unit = {},
     onItemSelected: (Int) -> Unit = {},
     onViewPathsClick: () -> Unit = {}
 ) {
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -32,7 +34,7 @@ fun PathsScreen(
             .statusBarsPadding()
     ) {
         // Header immediately after native status bar: 375 x 64
-        PathsTopBar()
+        PathsTopBar(onBackClick = onBack)
 
         Spacer(modifier = Modifier.height(10.dp))
 

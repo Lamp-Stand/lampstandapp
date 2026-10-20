@@ -42,7 +42,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.lampstand.R
-import com.example.lampstand.dashboard.BottomNavBar
 import com.example.lampstand.ui.theme.LampStandTheme
 
 /**
@@ -194,14 +193,28 @@ private fun PageDots(
 }
 
 /**
- * Formation Questions (Journey screen 4): personal application
- * with thought inputs, page nav and a Continue to Prayer button.
+ * Formation Questions (Journey screen 4 / web ApplicationSection):
+ * personal application with thought inputs and page nav.
+ * Questions come from live reflectionQuestions (web fallback trio
+ * when the backend has none).
  */
 @Composable
 fun JourneyFormationScreen(
-    onItemSelected: (Int) -> Unit = {},
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onNext: () -> Unit = {},
+    // Web: top-left back links to path detail; footer arrow steps back
+    // a section.
+    onBackToPath: () -> Unit = {},
+    questions: List<String> = emptyList()
 ) {
+    // Web fallbacks when reflectionQuestions is empty.
+    val effectiveQuestions = questions.filter { it.isNotBlank() }.ifEmpty {
+        listOf(
+            "What area of your life feels most uncertain right now?",
+            "How do you usually respond when you don't have control?",
+            "What would it look like to trust God in this situation?"
+        )
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -226,7 +239,7 @@ fun JourneyFormationScreen(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = onBack
+                        onClick = onBackToPath
                     )
             ) {
                 Icon(
@@ -293,18 +306,11 @@ fun JourneyFormationScreen(
                     .padding(start = 19.dp, top = 214.dp)
                     .width(336.dp)
             ) {
-                // M3E1 (153): Q1 + input + hint.
-                FormationQuestion(
-                    question = "What area of your life feels most uncertain right now?"
-                )
-                // M3E2 (153): Q2 + input + hint.
-                FormationQuestion(
-                    question = "How do you usually respond when you don\u2019t have control?"
-                )
-                // M3E3 (147): Q3 + input + hint.
-                FormationQuestion(
-                    question = "What would it look like to trust God in this situation?"
-                )
+                // M3: one block per live reflection question
+                // (web ApplicationSection maps content.questions).
+                effectiveQuestions.forEach { question ->
+                    FormationQuestion(question = question)
+                }
                 // M3E4 nav row: prev + dots (4th) + next, 30 tall.
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -315,7 +321,7 @@ fun JourneyFormationScreen(
                 ) {
                     NavCircleButton(contentDescription = "Previous", onClick = onBack)
                     PageDots(highlighted = 3)
-                    NavCircleButton(contentDescription = "Next", rotated = true)
+                    NavCircleButton(contentDescription = "Next", rotated = true, onClick = onNext)
                 }
                 // M4 button 60 below M3 content: 336 x 42, radius 8,
                 // padding 10/12, #335E78.
@@ -330,7 +336,7 @@ fun JourneyFormationScreen(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = {}
+                            onClick = onNext
                         )
                         .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
@@ -348,15 +354,11 @@ fun JourneyFormationScreen(
                             .height(22.dp)
                     )
                 }
-                // 139dp from M4 to the bottom bar.
-                Spacer(modifier = Modifier.height(139.dp))
+                // Web footer is px-8 py-[23px] under the CTA; there is no
+                // bottom nav on /session to clear any more.
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
-
-        BottomNavBar(
-            selectedIndex = 2,
-            onItemSelected = onItemSelected
-        )
     }
 }
 

@@ -51,9 +51,17 @@ private val CardBorder = Color(0xFFE5E7EB)
 @Composable
 fun DashboardScreen(
     onItemSelected: (Int) -> Unit = {},
-    userName: String = "ANIBE",
+    userName: String = "there",
     onContinueClick: () -> Unit = {},
-    onNotificationClick: () -> Unit = {}
+    onNotificationClick: () -> Unit = {},
+    onRecommendedClick: () -> Unit = {},
+    // Live data from paths:getHomeState (web parity). Defaults = previous hardcoded UI.
+    welcomeText: String = "Welcome Back",
+    pillText: String = "ACTIVE PATH . DAY 4 OF 7",
+    pathTitle: String = "Trust in Uncertainty",
+    dayChipText: String = "Day 4: Naming the Struggle . 7 min",
+    primaryButtonText: String = "Continue Today’s Session",
+    recommendationCount: Int = 6
 ) {
     Column(
         modifier = Modifier
@@ -64,7 +72,7 @@ fun DashboardScreen(
     ) {
         TopBar(
             greeting = "HI, ${userName.uppercase()}",
-            title = "Welcome Back",
+            title = welcomeText,
             notificationCount = 1,
             onNotificationClick = onNotificationClick
         )
@@ -76,9 +84,15 @@ fun DashboardScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            ActivePathCard(onContinueClick = onContinueClick)
+            ActivePathCard(
+                onContinueClick = onContinueClick,
+                pillText = pillText,
+                pathTitle = pathTitle,
+                dayChipText = dayChipText,
+                primaryButtonText = primaryButtonText
+            )
             ScriptureCard()
-            RecommendedSection()
+            RecommendedSection(count = recommendationCount, onClick = onRecommendedClick)
             Spacer(modifier = Modifier.height(4.dp))
         }
 
@@ -90,7 +104,13 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun ActivePathCard(onContinueClick: () -> Unit) {
+private fun ActivePathCard(
+    onContinueClick: () -> Unit,
+    pillText: String,
+    pathTitle: String,
+    dayChipText: String,
+    primaryButtonText: String
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -122,7 +142,7 @@ private fun ActivePathCard(onContinueClick: () -> Unit) {
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = "ACTIVE PATH . DAY 4 OF 7",
+                    text = pillText,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.3.sp,
@@ -158,7 +178,7 @@ private fun ActivePathCard(onContinueClick: () -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Trust in Uncertainty",
+                text = pathTitle,
                 fontSize = 21.sp,
                 fontWeight = FontWeight.Bold,
                 lineHeight = 26.sp,
@@ -177,7 +197,7 @@ private fun ActivePathCard(onContinueClick: () -> Unit) {
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = "Day 4: Naming the Struggle . 7 min",
+                    text = dayChipText,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color.White,
@@ -208,7 +228,7 @@ private fun ActivePathCard(onContinueClick: () -> Unit) {
                     .padding(horizontal = 12.dp)
             ) {
                 Text(
-                    text = "Continue Today\u2019s Session",
+                    text = primaryButtonText,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
@@ -270,7 +290,7 @@ private fun ScriptureCard() {
 }
 
 @Composable
-private fun RecommendedSection() {
+private fun RecommendedSection(count: Int = 6, onClick: () -> Unit = {}) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "Recommended For You",
@@ -285,13 +305,14 @@ private fun RecommendedSection() {
         Spacer(modifier = Modifier.height(12.dp))
         Image(
             painter = painterResource(id = R.drawable.recommended),
-            contentDescription = "Fear and Anxiety",
+            contentDescription = "Fear & Anxiety",
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .width(160.dp)
                 .height(120.dp)
                 .background(Color(0xFFDCE7EF), RoundedCornerShape(8.dp))
                 .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onClick)
         )
         Spacer(modifier = Modifier.height(8.dp))
         Column(
@@ -307,7 +328,7 @@ private fun RecommendedSection() {
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = "6 Formation Paths",
+                text = "$count Formation Paths",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Normal,
                 color = SubGray,

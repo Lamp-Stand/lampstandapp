@@ -1,6 +1,5 @@
 package com.example.lampstand.journey
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,18 +24,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
@@ -45,37 +38,26 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.lampstand.R
-import com.example.lampstand.dashboard.BottomNavBar
 import com.example.lampstand.ui.theme.LampStandTheme
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
- * Guided Prayer (Journey screen 5).
- *
- * Popup "Day 3 Completed": appears 5s after open, stays until the
- * user leaves or taps Complete Session (which itself waits 3s so
- * the popup can display first).
+ * Guided Prayer (Journey screen 5 / web GuidedPrayerSection).
+ * Complete Session calls straight through — web has no delay or popup.
  */
 @Composable
 fun JourneyPrayerScreen(
-    onItemSelected: (Int) -> Unit = {},
     onBack: () -> Unit = {},
     onComplete: () -> Unit = {},
-    showPopupAtStart: Boolean = false
+    // Web: top-left back links to path detail; footer arrow steps back
+    // to Application.
+    onBackToPath: () -> Unit = {},
+    isCompleting: Boolean = false,
+    sessionError: String? = null,
+    // Web GuidedPrayerSection: content.prayerText.
+    prayerText: String? = null
 ) {
-    var showPopup by remember(showPopupAtStart) {
-        mutableStateOf(showPopupAtStart)
-    }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(showPopupAtStart) {
-        if (!showPopupAtStart) {
-            delay(5000)
-            showPopup = true
-        }
-    }
-
+    val effectivePrayer = prayerText?.takeIf { it.isNotBlank() }
+        ?: "Father, thank You for being my refuge when life feels loud and overwhelming. Teach me what it truly means to be still before You."
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -100,7 +82,7 @@ fun JourneyPrayerScreen(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = onBack
+                        onClick = onBackToPath
                     )
             ) {
                 Icon(
@@ -109,58 +91,6 @@ fun JourneyPrayerScreen(
                     tint = Color(0xFF335E78),
                     modifier = Modifier.size(16.dp)
                 )
-            }
-            // Popup on M1's row: 162 x 29, top 78, left 115
-            // (66 from the back button, 98 from the right edge).
-            // Once shown it stays until the user leaves the screen
-            // or taps Complete Session.
-            if (showPopup) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 115.dp, top = 78.dp)
-                        .width(162.dp)
-                        .height(29.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color.White)
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(
-                            10.dp,
-                            Alignment.CenterHorizontally
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        // Check badge (drawn, 16dp).
-                        Canvas(modifier = Modifier.size(16.dp)) {
-                            drawCircle(color = Color(0xFF335E78))
-                            drawPath(
-                                path = Path().apply {
-                                    moveTo(size.width * 0.28f, size.height * 0.54f)
-                                    lineTo(size.width * 0.45f, size.height * 0.70f)
-                                    lineTo(size.width * 0.73f, size.height * 0.34f)
-                                },
-                                color = Color.White,
-                                style = Stroke(width = size.width * 0.10f)
-                            )
-                        }
-                        Text(
-                            text = "Day 3 Completed",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Normal,
-                            lineHeight = 16.sp,
-                            letterSpacing = 0.sp,
-                            color = Color(0xFF184159),
-                            maxLines = 1,
-                            modifier = Modifier
-                                .width(115.dp)
-                                .height(16.dp)
-                        )
-                    }
-                }
             }
             // M2: 263 x 14, top 125, left 20, gap 4 (24 below M1).
             Row(
@@ -229,7 +159,7 @@ fun JourneyPrayerScreen(
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .width(3.dp)
-                            .height(125.dp)
+                            .fillMaxHeight()
                             .clip(
                                 RoundedCornerShape(
                                     topStart = 4.dp,
@@ -280,9 +210,9 @@ fun JourneyPrayerScreen(
                                 .height(15.dp)
                         )
                     }
-                    // M4E2: 296 wide, top 45, left 17, 14/20, #535353.
+                    // M4E2: live guided prayer text.
                     Text(
-                        text = "Father, thank You for being my refuge when life feels loud and overwhelming. Teach me what it truly means to be still before You.",
+                        text = effectivePrayer,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Normal,
                         lineHeight = 20.sp,
@@ -345,9 +275,16 @@ fun JourneyPrayerScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(80.dp))
+                if (sessionError != null) {
+                    Text(
+                        text = sessionError,
+                        fontSize = 13.sp,
+                        color = Color(0xFFE5484D),
+                        modifier = Modifier.padding(start = 19.dp, bottom = 8.dp)
+                    )
+                }
                 // M6 button: 334 x 42, left 19, radius 8, padding
-                // 10/12, #335E78. 3s delay on tap so the popup
-                // can display before continuing.
+                // 10/12, #335E78. Web: straight to completeSession.
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -355,22 +292,17 @@ fun JourneyPrayerScreen(
                         .width(334.dp)
                         .height(42.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF335E78))
+                        .background(if (isCompleting) Color(0xFF92ADBE) else Color(0xFF335E78))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = {
-                                scope.launch {
-                                    delay(3000)
-                                    showPopup = false
-                                    onComplete()
-                                }
-                            }
+                            enabled = !isCompleting,
+                            onClick = onComplete
                         )
                         .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
                     Text(
-                        text = "Complete Session",
+                        text = if (isCompleting) "Completing..." else "Complete Session",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
                         lineHeight = 22.sp,
@@ -383,15 +315,11 @@ fun JourneyPrayerScreen(
                             .height(22.dp)
                     )
                 }
-                // 131dp from M6 to the bottom bar.
-                Spacer(modifier = Modifier.height(131.dp))
+                // Web footer is px-8 py-[23px] under the CTA; there is no
+                // bottom nav on /session to clear any more.
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
-
-        BottomNavBar(
-            selectedIndex = 2,
-            onItemSelected = onItemSelected
-        )
     }
 }
 
@@ -399,6 +327,6 @@ fun JourneyPrayerScreen(
 @Composable
 fun JourneyPrayerScreenPreview() {
     LampStandTheme(dynamicColor = false) {
-        JourneyPrayerScreen(showPopupAtStart = true)
+        JourneyPrayerScreen()
     }
 }

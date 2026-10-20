@@ -1,0 +1,22 @@
+LampStand Google OAuth — handoff
+
+Goal: Google login via Convex Auth browser flow (Custom Tab -> Google consent -> deep link back to app).
+
+App address (must be allowlisted in backend):
+com.example.lampstand://oauth2redirect
+
+App side — VERIFIED CORRECT, don't change:
+- app/build.gradle.kts: applicationId = "com.example.lampstand"
+- data/remote/GoogleOAuth.kt:31: REDIRECT_URI = "com.example.lampstand://oauth2redirect", sent as params:{ redirectTo } in auth:signIn action
+- AndroidManifest.xml:39-40: scheme="com.example.lampstand" host="oauth2redirect" + MainActivity reads ?code=
+- ConvexConfig: cloud https://exciting-dodo-656.convex.cloud/, site https://exciting-dodo-656.convex.site/
+- Fixed 2 app bugs along the way: stray "vcx" typo + extra "}" on .onFailure in MainActivity.kt (~95 cascade errors, now fixed).
+
+Backend history (convex/auth.ts):
+1. First: Invalid redirectTo / 401 — custom scheme rejected (only SITE_URL allowed).
+2. Then: {"code":"[Request ID: 9f1b3959ae3de226] Server Error"} JSON inside Chrome after email select — callback GET /api/auth/callback/google crashed 500 instead of 302 to app scheme.
+3. Now: step-1 URL uses custom domain and 404s before email select: https://app.lampstandapp.net/api/auth/signin/google?redirectTo=com.example.lampstand%3A%2F%2Foauth2redirect -> 404 (verified from server too). Note name confusion: app.lampstand.net vs app.lampstandapp.net. Custom domain not mapped to deployment exciting-dodo-656 (DNS / Dashboard -> Custom Domains missing) or SITE_URL typo.
+
+Current blocker: backend custom domain 404. Asked backend dev to either finish domain mapping or revert SITE_URL to https://exciting-dodo-656.convex.site + redeploy.
+
+Next step on retry: uninstall app -> Sync -> Run -> Google sign-in. Expect Chrome -> Google consent -> auto-redirect back to app onboarding. If fail, capture: (a) full Chrome URL, (b) new Request ID, (c) app dialog title step 1/3 vs step 3/3, (d) adb shell am start -a VIEW -d "com.example.lampstand://oauth2redirect?code=test123" result to prove deep link works.

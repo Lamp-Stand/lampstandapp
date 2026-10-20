@@ -32,14 +32,19 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.lampstand.R
-import com.example.lampstand.dashboard.BottomNavBar
 import com.example.lampstand.ui.theme.LampStandTheme
 
 @Composable
 fun JourneyScreenTwo(
-    onItemSelected: (Int) -> Unit = {},
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onNext: () -> Unit = {},
+    // Web: top-left back is always a link to /my-journey/[id]; the
+    // footer arrow is the one that steps to the previous section.
+    onBackToPath: () -> Unit = {},
+    // Web ContextSection: paragraphs = [scriptureContext] or "Context coming soon."
+    contextText: String? = null
 ) {
+    val contextBody = contextText?.takeIf { it.isNotBlank() } ?: "Context coming soon."
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -53,6 +58,7 @@ fun JourneyScreenTwo(
                 .verticalScroll(rememberScrollState())
         ) {
             // Back button: 30 x 30, top 40, left 19, radius 16, white.
+            // Web: Link to /my-journey/[id] (path detail).
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -64,7 +70,7 @@ fun JourneyScreenTwo(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = onBack
+                        onClick = onBackToPath
                     )
             ) {
                 Icon(
@@ -122,26 +128,23 @@ fun JourneyScreenTwo(
                     modifier = Modifier.width(247.dp)
                 )
             }
-            // Second frame: 336 x 750, top 226, left 19, gap 60.
+            // Second frame: body + nav; wraps so long context never clips.
             Column(
                 verticalArrangement = Arrangement.spacedBy(60.dp),
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(start = 19.dp, top = 226.dp)
+                    .padding(start = 19.dp, top = 226.dp, bottom = 40.dp)
                     .width(336.dp)
-                    .height(750.dp)
             ) {
-                // Body: 336 x 660, Inter 400 Regular 14/20, #535353.
+                // Body: live scriptureContext (web ContextSection paragraphs).
                 Text(
-                    text = "Psalm 46 was written in a time when God\u2019s people were familiar with national turmoil, threats from surrounding nations, and the instability of life in the ancient Near East. This psalm belongs to a collection attributed to the sons of Korah, a Levitical family responsible for worship in the temple. Their writings often reflect deep trust in God\u2019s protection during seasons of crisis. Psalm 46 in particular was composed to strengthen the hearts of God\u2019s people when everything around them felt unstable\u2014politically, militarily, and emotionally.\n\nThe command \u201CBe still\u201D in Hebrew (raphah) does not simply mean \u201Cbe quiet.\u201D It means to loosen, to let go, to relax your grip. God is speaking into a context of fear and unrest, calling His people not to panic, not to strive, and not to attempt to control what they cannot control. Instead, He directs them to recognize His unmatched power and sovereignty: \u201CKnow that I am God.\u201D This is a declaration of divine authority in the middle of human uncertainty.\n\nThe psalm also uses vivid imagery\u2014roaring waters, shaking mountains, nations in uproar\u2014to show that even when the world feels chaotic, God stands firm. The message is that true stillness is not found in calm circumstances; it is found in a steady God. Historically, this verse served as an anchor for Israel during times of conflict, reminding them that God, not their circumstances, defined their security.",
+                    text = contextBody,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Normal,
                     lineHeight = 20.sp,
                     letterSpacing = 0.sp,
                     color = Color(0xFF535353),
-                    modifier = Modifier
-                        .width(336.dp)
-                        .height(660.dp)
+                    modifier = Modifier.width(336.dp)
                 )
                 // Frame 1 (nav): prev + dots + next, 30 tall.
                 Row(
@@ -201,7 +204,7 @@ fun JourneyScreenTwo(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
-                                onClick = {}
+                                onClick = onNext
                             )
                     ) {
                         Icon(
@@ -216,11 +219,6 @@ fun JourneyScreenTwo(
                 }
             }
         }
-
-        BottomNavBar(
-            selectedIndex = 2,
-            onItemSelected = onItemSelected
-        )
     }
 }
 

@@ -91,7 +91,7 @@ fun DashboardSignedOutScreen(
                         color = Color(0xFF92ADBE)
                     )
                     Text(
-                        text = "Sign In",
+                        text = "Welcome",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         lineHeight = 18.sp,
@@ -156,7 +156,7 @@ fun DashboardSignedOutScreen(
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = "SELECT PATH TO BEGIN",
+                                text = "NO ACTIVE PATH",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 lineHeight = 14.sp,
@@ -175,7 +175,7 @@ fun DashboardSignedOutScreen(
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
-                                text = "FORMATION PATH",
+                                text = "FORMATION IN PROGRESS",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 lineHeight = 14.sp,
@@ -199,7 +199,7 @@ fun DashboardSignedOutScreen(
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
                             Text(
-                                text = "Day 1: God Sees the Path Ahead . 7 min",
+                                text = "Day 1: Naming the Struggle . 7 min",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
                                 lineHeight = 15.sp,
@@ -222,7 +222,7 @@ fun DashboardSignedOutScreen(
                             modifier = Modifier.fillMaxWidth().height(48.dp)
                         ) {
                             Text(
-                                "Continue Reading",
+                                "Explore Formation Paths",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = Color.White
