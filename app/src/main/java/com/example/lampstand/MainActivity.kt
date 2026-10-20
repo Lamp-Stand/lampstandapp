@@ -100,16 +100,30 @@ fun LampStandApp(
                 var otpError by remember { mutableStateOf<String?>(null) }
                 // Signed-in = a Convex session exists (browser OAuth or email OTP).
                 // googleSignedIn is the single source of truth for that.
-                var googleSignedIn by remember { mutableStateOf(ServiceLocator.hasConvexSession()) }
-                // Single-page onboarding state (same payload as web, zero backend changes).
-                var onboardingDone by remember { mutableStateOf(false) }
+                val hasStoredSession = remember { ServiceLocator.hasConvexSession() }
+                var authReady by remember { mutableStateOf(!hasStoredSession) }
+                var googleSignedIn by remember { mutableStateOf(hasStoredSession) }
+                // Nullable: null = users:me hasn't answered yet. Cached locally so a
+                // returning user goes straight to the app instead of flashing onboarding.
+                var onboardingDone by remember { mutableStateOf(ServiceLocator.cachedOnboardingCompleted()) }
                 var onboardLoading by remember { mutableStateOf(false) }
                 var onboardError by remember { mutableStateOf<String?>(null) }
-                LaunchedEffect(googleSignedIn) {
-                    if (googleSignedIn && !onboardingDone) {
-                        // Ask backend: users:me.hasCompletedOnboarding. null = unknown/offline.
-                        val done = ServiceLocator.fetchMeHasCompletedOnboarding()
-                        if (done == true) onboardingDone = true
+                LaunchedEffect(Unit) {
+                    if (hasStoredSession) {
+                        val usable = ServiceLocator.refreshSessionIfNeeded()
+                        googleSignedIn = usable
+                        if (!usable) onboardingDone = null
+                        authReady = true
+                    }
+                }
+                LaunchedEffect(googleSignedIn, authReady) {
+                    if (!authReady || !googleSignedIn) return@LaunchedEffect
+                    val cached = ServiceLocator.cachedOnboardingCompleted()
+                    if (cached != null) onboardingDone = cached
+                    val done = ServiceLocator.fetchMeHasCompletedOnboarding()
+                    when {
+                        done != null -> onboardingDone = done
+                        onboardingDone == null -> onboardingDone = false
                     }
                 }
                 // Shown for 3s after a successful sign-in / sign-up, before the dashboard.
@@ -186,7 +200,9 @@ fun LampStandApp(
                         text = { Text(message) }
                     )
                 }
-                if (!splashDone || sessionLoading) {
+                val checkingOnboarding =
+                    googleSignedIn && (!authReady || onboardingDone == null)
+                if (!splashDone || sessionLoading || checkingOnboarding) {
                     LoadingScreen()
                 } else if (!googleSignedIn) {
                     // ---- Signed-out: auth flow (Google OAuth or email OTP) ----
@@ -262,7 +278,7 @@ fun LampStandApp(
                         }
                     } else {
                         // ---- Signed-in (any Convex session: Google or email OTP) ----
-                        if (googleSignedIn && !onboardingDone) {
+                        if (onboardingDone == false) {
                             OnboardingProfileScreen(
                                 isLoading = onboardLoading,
                                 error = onboardError,
@@ -283,6 +299,7 @@ fun LampStandApp(
                                                 reminderMinute = data.reminderMinute
                                             ).onSuccess {
                                                 onboardingDone = true
+                                                ServiceLocator.saveOnboardingCompleted(true)
                                             }.onFailure {
                                                 onboardError = it.message ?: "Couldn't save — try again"
                                             }
@@ -308,6 +325,7 @@ fun LampStandApp(
                             // the dashboard's primary action or a journey card tap.
                             var showSession by remember { mutableStateOf(false) }
                             var showJourneyDashboard by remember { mutableStateOf(false) }
+                            var journeyDashboardFromPaths by remember { mutableStateOf(false) }
                             var showProfileEdit by remember { mutableStateOf(false) }
                             // Session opened from the path detail (web's
                             // /my-journey/[id]/session?sessionId=...). Null = fall back to
@@ -346,6 +364,7 @@ fun LampStandApp(
                                 if (tab == 2) {
                                     showSession = false
                                     showJourneyDashboard = false
+                                    journeyDashboardFromPaths = false
                                     postCompleteFlow = null
                                     journeySection = 0
                                     selectedSessionId = null
@@ -458,13 +477,18 @@ fun LampStandApp(
                                         onNavTab(it)
                                     },
                                     onCardClick = {
-                                        // Live path card → the Journey tab's list.
                                         showFandA = false
-                                        onNavTab(2)
+                                        selectedTab = 2
+                                        journeyDashboardFromPaths = true
+                                        showJourneyDashboard = true
+                                        home?.pathId?.let(formationVm::loadOverview)
                                     },
-                                    onPathClick = {
+                                    onPathClick = { pathId ->
                                         showFandA = false
-                                        onNavTab(2)
+                                        selectedTab = 2
+                                        journeyDashboardFromPaths = true
+                                        showJourneyDashboard = true
+                                        formationVm.loadOverview(pathId)
                                     },
                                     onComingSoonClick = { pathId, onResult ->
                                         // Web ComingSoonPathcard.handleTap: the card
@@ -507,12 +531,21 @@ fun LampStandApp(
                                             ?: lastCompletedSession
                                             ?: listOverview?.sessions?.firstOrNull()
                                         JourneyDashboardScreen(
-                                            onBack = { showJourneyDashboard = false },
+                                            onBack = {
+                                                showJourneyDashboard = false
+                                                if (journeyDashboardFromPaths) {
+                                                    journeyDashboardFromPaths = false
+                                                    showFandA = true
+                                                    selectedTab = 1
+                                                }
+                                            },
                                             onItemSelected = onNavTab,
                                             onContinueClick = {
                                                 val sid = continueSession?.sessionId ?: home?.sessionId
                                                 if (sid != null) {
                                                     selectedSessionId = sid
+                                                    journeySection = 0
+                                                    postCompleteFlow = null
                                                     showSession = true
                                                 } else {
                                                     authError("No session available yet")
@@ -520,6 +553,8 @@ fun LampStandApp(
                                             },
                                             onSessionClick = { sid ->
                                                 selectedSessionId = sid
+                                                journeySection = 0
+                                                postCompleteFlow = null
                                                 showSession = true
                                             },
                                             title = listOverview?.title
@@ -528,9 +563,10 @@ fun LampStandApp(
                                             description = dashboardDescription,
                                             totalDays = listOverview?.totalDays ?: home?.totalDays ?: 7,
                                             sessions = dashboardSessions,
-                                            currentDay = home?.currentDay,
+                                            currentDay = availableSession?.dayNumber
+                                                ?: lastCompletedSession?.dayNumber,
                                             isReviewing = availableSession == null && lastCompletedSession != null,
-                                            selectedIndex = 2
+                                            selectedIndex = if (journeyDashboardFromPaths) 1 else 2
                                         )
                                     } else {
                                         // Web /my-journey: the Journey tab's entry screen —
@@ -539,6 +575,7 @@ fun LampStandApp(
                                             onItemSelected = onNavTab,
                                             onPathClick = {
                                                 home?.pathId?.let(formationVm::loadOverview)
+                                                journeyDashboardFromPaths = false
                                                 showJourneyDashboard = true
                                             },
                                             onGoToPaths = { selectedTab = 1 },
@@ -730,7 +767,7 @@ fun LampStandApp(
                                             } finally {
                                                 formationVm.reset()
                                                 googleSignedIn = false
-                                                onboardingDone = false
+                                                onboardingDone = null
                                                 onboardError = null
                                                 route = AuthRoute.SignedOut
                                                 sessionLoading = false
@@ -761,6 +798,8 @@ fun LampStandApp(
                                             home?.state == "active" && sid != null -> {
                                                 selectedSessionId = sid
                                                 showSession = true
+                                                showJourneyDashboard = true
+                                                journeyDashboardFromPaths = false
                                                 selectedTab = 2
                                             }
                                             home?.state == "active" || home?.state == "complete" -> {

@@ -4,6 +4,8 @@ import android.content.Context
 import com.example.lampstand.data.remote.ConvexClient
 import com.example.lampstand.data.remote.ConvexConfig
 import com.example.lampstand.data.remote.ConvexTokenStore
+import java.io.IOException
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
@@ -17,6 +19,7 @@ import kotlinx.serialization.json.booleanOrNull
 object ServiceLocator {
 
     private const val KEY_OAUTH_VERIFIER = "oauth_verifier_v1"
+    private const val KEY_ONBOARDING_DONE = "onboarding_done_v1"
 
     private var appContext: Context? = null
 
@@ -119,6 +122,63 @@ object ServiceLocator {
 
     fun hasConvexSession(): Boolean = tokenStore.bearerOrNull() != null
 
+    /** Local copy of users:me.hasCompletedOnboarding; null = never checked. */
+    fun cachedOnboardingCompleted(): Boolean? {
+        val prefs = cachePrefs ?: return null
+        if (!prefs.contains(KEY_ONBOARDING_DONE)) return null
+        return prefs.getBoolean(KEY_ONBOARDING_DONE, false)
+    }
+
+    fun saveOnboardingCompleted(completed: Boolean) {
+        try {
+            cachePrefs?.edit()?.putBoolean(KEY_ONBOARDING_DONE, completed)?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+    }
+
+    /**
+     * Refreshes an expired JWT with the stored refresh token. Returns true
+     * while the session remains usable. Only a backend rejection clears the
+     * local session; an offline refresh keeps the existing tokens.
+     */
+    suspend fun refreshSessionIfNeeded(): Boolean {
+        if (tokenStore.tokenOrNull() == null) return false
+        if (!tokenStore.needsRefresh()) return true
+
+        val refresh = tokenStore.refreshTokenOrNull() ?: run {
+            signOutEverywhere()
+            return false
+        }
+
+        return try {
+            val value = ConvexClient.valueOf(
+                convexApi.action(
+                    com.example.lampstand.data.remote.ConvexBodies.action(
+                        "auth:signIn",
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("refreshToken", JsonPrimitive(refresh))
+                        }
+                    )
+                )
+            ) as? JsonObject ?: throw IllegalStateException("Invalid refresh response")
+            val tokens = value["tokens"] as? JsonObject
+                ?: throw IllegalStateException("Missing tokens in refresh response")
+            val newToken = (tokens["token"] as? JsonPrimitive)?.content
+                ?: throw IllegalStateException("Missing refreshed token")
+            val newRefresh = (tokens["refreshToken"] as? JsonPrimitive)?.content
+                ?: throw IllegalStateException("Missing refreshed refresh token")
+            tokenStore.save(newToken, newRefresh)
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: IOException) {
+            // Offline: keep the session; cached data still works.
+            true
+        } catch (_: Exception) {
+            signOutEverywhere()
+            false
+        }
+    }
+
     /**
      * Mirrors web profile page signOut(): invalidate the Convex session
      * server-side first (auth:signOut), then drop every local trace of it.
@@ -163,6 +223,7 @@ object ServiceLocator {
             e.remove("cache_discovery_v1")
             e.remove("cache_home_v1")
             e.remove("cache_me_v1")
+            e.remove(KEY_ONBOARDING_DONE)
             e.remove("reminder_slot")
             e.remove("reminder_hour")
             e.remove("reminder_minute")
@@ -335,6 +396,7 @@ object ServiceLocator {
         )
         // Local-only: persist the exact notification time (backend has no clock-time field).
         saveReminderTime(studyTimePreference, reminderHour, reminderMinute)
+        saveOnboardingCompleted(true)
         Unit
     }
 
@@ -351,8 +413,10 @@ object ServiceLocator {
                     bearer
                 )
             ) as? kotlinx.serialization.json.JsonObject ?: return null
-            (v["hasCompletedOnboarding"] as? kotlinx.serialization.json.JsonPrimitive)
-                ?.booleanOrNull
+            val completed = (v["hasCompletedOnboarding"] as? JsonPrimitive)
+                ?.booleanOrNull ?: false
+            saveOnboardingCompleted(completed)
+            completed
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
