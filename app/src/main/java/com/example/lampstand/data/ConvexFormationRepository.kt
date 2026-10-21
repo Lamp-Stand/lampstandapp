@@ -18,7 +18,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.doubleOrNull
 
 private const val KEY_DISCOVERY = "cache_discovery_v1"
 private const val KEY_HOME = "cache_home_v1"
@@ -136,7 +136,7 @@ class ConvexFormationRepository(
             )
             val v = ConvexClient.valueOf(envelope) as JsonObject
             val total = (v["totalTaps"] as? kotlinx.serialization.json.JsonPrimitive)
-                ?.intOrNull ?: 0
+                ?.doubleOrNull?.toInt() ?: 0
             // Refresh discovery cache so the counter updates.
             getDiscovery()
             Result.success(total)

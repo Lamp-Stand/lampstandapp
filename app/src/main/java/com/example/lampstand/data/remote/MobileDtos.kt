@@ -9,14 +9,14 @@ data class DiscoveryItem(
     val description: String,
     val category: String,
     val isLive: Boolean,
-    val totalTaps: Int = 0,
+    val totalTaps: Double = 0.0,
     val userHasTapped: Boolean = false
 )
 
 @Serializable
 data class SessionStub(
     val sessionId: String,
-    val dayNumber: Int,
+    val dayNumber: Double,
     val title: String,
     val status: String // "completed" | "available" | "locked"
 )
@@ -27,10 +27,10 @@ data class PathOverviewDto(
     val title: String,
     val description: String,
     val isLive: Boolean,
-    val totalDays: Int,
+    val totalDays: Double,
     val category: String,
     val userPathId: String? = null,
-    val startedAt: Long? = null,
+    val startedAt: Double? = null,
     val sessions: List<SessionStub> = emptyList()
 )
 
@@ -42,8 +42,8 @@ data class HomeStateDto(
     val state: String, // "unauthenticated" | "no_path" | "active" | "complete"
     val pathId: String? = null,
     val pathTitle: String? = null,
-    val currentDay: Int? = null,
-    val totalDays: Int? = null,
+    val currentDay: Double? = null,
+    val totalDays: Double? = null,
     val todayDone: Boolean? = null,
     val sessionId: String? = null
 )
@@ -65,7 +65,7 @@ data class MeDto(
 @Serializable
 data class SessionContentDto(
     val sessionId: String = "",
-    val dayNumber: Int = 1,
+    val dayNumber: Double = 1.0,
     val title: String = "",
     val scriptureReference: String? = null,
     val scriptureVerse: String? = null,
@@ -80,8 +80,8 @@ data class SessionContentDto(
 
 @Serializable
 data class CompleteSessionResult(
-    val nextDay: Int = 1,
+    val nextDay: Double = 1.0,
     val pathComplete: Boolean = false,
-    val completedDays: List<Int> = emptyList(),
+    val completedDays: List<Double> = emptyList(),
     val isNew: Boolean = true
 )

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.lampstand.R
 import com.example.lampstand.dashboard.BottomNavBar
+import com.example.lampstand.ui.ScreenStatusBanner
 import com.example.lampstand.ui.theme.LampStandTheme
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -237,7 +238,10 @@ fun JourneyDashboardScreen(
     currentDay: Int? = null,
     isReviewing: Boolean = false,
     imageRes: Int = R.drawable.journey_illustration,
-    selectedIndex: Int = 1
+    selectedIndex: Int = 1,
+    isLoading: Boolean = false,
+    loadError: String? = null,
+    onRetry: (() -> Unit)? = null
 ) {
     val resolvedActiveDay = currentDay
         ?: sessions.firstOrNull { it.status == "available" }?.dayNumber
@@ -253,6 +257,11 @@ fun JourneyDashboardScreen(
             .background(PageBackground)
             .statusBarsPadding()
     ) {
+        ScreenStatusBanner(
+            message = loadError,
+            loading = isLoading,
+            onRetry = onRetry
+        )
         Box(
             modifier = Modifier
                 .weight(1f)

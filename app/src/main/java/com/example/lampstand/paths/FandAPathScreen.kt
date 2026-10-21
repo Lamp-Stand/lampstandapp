@@ -204,7 +204,7 @@ fun FandAPathScreen(
                                     imageRes = imageFor(cardTitle),
                                     title = cardTitle,
                                     description = cardDesc,
-                                    totalTaps = item.totalTaps,
+                                    totalTaps = item.totalTaps.toInt(),
                                     userHasTapped = item.userHasTapped,
                                     onTap = { onResult -> onComingSoonClick(item.pathId, onResult) }
                                 )

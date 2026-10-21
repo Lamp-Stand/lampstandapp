@@ -4,7 +4,9 @@ import android.content.Context
 import com.example.lampstand.data.remote.ConvexClient
 import com.example.lampstand.data.remote.ConvexConfig
 import com.example.lampstand.data.remote.ConvexTokenStore
+import com.example.lampstand.data.remote.HomeStateDto
 import java.io.IOException
+import java.util.Calendar
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -20,6 +22,8 @@ object ServiceLocator {
 
     private const val KEY_OAUTH_VERIFIER = "oauth_verifier_v1"
     private const val KEY_ONBOARDING_DONE = "onboarding_done_v1"
+    private const val KEY_HOME_CACHE = "cache_home_v1"
+    private const val KEY_LAST_SESSION_COMPLETED = "last_session_completed_at_v1"
 
     private var appContext: Context? = null
 
@@ -351,6 +355,52 @@ object ServiceLocator {
                 ?.putInt("reminder_minute", minute)
                 ?.apply()
         } catch (_: Exception) { /* best-effort */ }
+    }
+
+    fun clearReminderTime() {
+        try {
+            cachePrefs?.edit()
+                ?.remove("reminder_slot")
+                ?.remove("reminder_hour")
+                ?.remove("reminder_minute")
+                ?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+    }
+
+    /** Last paths:getHomeState response, so reminders can mirror web's "only while active". */
+    fun cachedHomeState(): HomeStateDto? {
+        val cached = try {
+            cachePrefs?.getString(KEY_HOME_CACHE, null)
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return try {
+            ConvexClient.json.decodeFromString(HomeStateDto.serializer(), cached)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Record completion locally so the daily nudge can skip a day already done. */
+    fun recordSessionCompletedNow() {
+        try {
+            cachePrefs?.edit()
+                ?.putLong(KEY_LAST_SESSION_COMPLETED, System.currentTimeMillis())
+                ?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+    }
+
+    fun completedSessionToday(): Boolean {
+        val last = try {
+            cachePrefs?.getLong(KEY_LAST_SESSION_COMPLETED, 0L) ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
+        if (last <= 0L) return false
+        val done = Calendar.getInstance().apply { timeInMillis = last }
+        val now = Calendar.getInstance()
+        return done.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
+            done.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR)
     }
 
     // ── Onboarding (same mutations as web, zero backend changes) ──

@@ -5,6 +5,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -15,9 +19,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.lampstand.auth.CreateAccountScreen
 import com.example.lampstand.auth.DashboardSignedOutScreen
 import com.example.lampstand.auth.LoadingScreen
@@ -29,10 +39,14 @@ import com.example.lampstand.journey.JourneyDashboardScreen
 import com.example.lampstand.journey.JourneyDashboardSession
 import com.example.lampstand.journey.JourneyListScreen
 import com.example.lampstand.journey.JourneyScreen
+import com.example.lampstand.notification.ReminderScheduler
 import com.example.lampstand.paths.FandAPathScreen
 import com.example.lampstand.paths.PathsScreen
+import com.example.lampstand.profile.PrivacyPolicyScreen
 import com.example.lampstand.profile.ProfileEditScreen
 import com.example.lampstand.profile.ProfileScreen
+import com.example.lampstand.profile.TermsOfServiceScreen
+import com.example.lampstand.ui.ScreenStatusBanner
 import com.example.lampstand.ui.theme.LampStandTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -44,6 +58,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         enableEdgeToEdge()
+
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val granted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4101)
+            }
+        }
 
         // Cold start via OAuth deep link (app was not running).
         intent?.data?.getQueryParameter("code")?.takeIf { it.isNotBlank() }?.let {
@@ -318,26 +340,34 @@ fun LampStandApp(
                             firstName = "", lastName = "", email = "", phone = ""
                         )
                         fallbackUser.let { user ->
-                            var selectedTab by remember { mutableStateOf(0) }
-                            var showFandA by remember { mutableStateOf(false) }
+                            var selectedTab by rememberSaveable { mutableStateOf(0) }
+                            var showFandA by rememberSaveable { mutableStateOf(false) }
                             // Web: the Journey tab always lands on /my-journey (the
                             // path list). The 5-section session is only entered from
                             // the dashboard's primary action or a journey card tap.
-                            var showSession by remember { mutableStateOf(false) }
-                            var showJourneyDashboard by remember { mutableStateOf(false) }
-                            var journeyDashboardFromPaths by remember { mutableStateOf(false) }
-                            var showProfileEdit by remember { mutableStateOf(false) }
+                            var showSession by rememberSaveable { mutableStateOf(false) }
+                            var showJourneyDashboard by rememberSaveable { mutableStateOf(false) }
+                            var journeyDashboardFromPaths by rememberSaveable { mutableStateOf(false) }
+                            var showProfileEdit by rememberSaveable { mutableStateOf(false) }
+                            var showPrivacy by rememberSaveable { mutableStateOf(false) }
+                            var showTerms by rememberSaveable { mutableStateOf(false) }
+                            // Path the dashboard was opened for (used by refresh + retry).
+                            var openedPathId by rememberSaveable { mutableStateOf<String?>(null) }
+                            var autoStartedPath by rememberSaveable { mutableStateOf<String?>(null) }
                             // Session opened from the path detail (web's
                             // /my-journey/[id]/session?sessionId=...). Null = fall back to
                             // whatever the backend says is today's session.
-                            var selectedSessionId by remember { mutableStateOf<String?>(null) }
-                            // Web 5-section session pager: 0 Today's Journey · 1 Context
-                            // · 2 Insight · 3 Application · 4 Guided Prayer.
-                            var journeySection by remember { mutableStateOf(0) }
-                            // Web post-completion chain (pathComplete → /feedback):
-                            // feedback → completed → looking-forward → support.
+                            var selectedSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+                            // Web 5-section session pager: 0 Today's Journey A� 1 Context
+                            // A� 2 Insight A� 3 Application A� 4 Guided Prayer.
+                            var journeySection by rememberSaveable { mutableStateOf(0) }
+                            // Web post-completion chain (pathComplete �+' /feedback):
+                            // feedback �+' completed �+' looking-forward �+' support.
                             // Null = the normal 5-section session pager.
-                            var postCompleteFlow by remember { mutableStateOf<String?>(null) }
+                            var postCompleteFlow by rememberSaveable { mutableStateOf<String?>(null) }
+                            val sessionPager = rememberPagerState(
+                                initialPage = journeySection.coerceIn(0, 4)
+                            ) { 5 }
                             // viewModel() ties the VM to the Activity's ViewModelStore so its
                             // viewModelScope is cancelled cleanly — remember() leaked coroutines
                             // past composition (the "coroutine scope left the composition" crash).
@@ -357,6 +387,33 @@ fun LampStandApp(
                             LaunchedEffect(selectedTab, googleSignedIn, onboardingDone) {
                                 if (selectedTab == 0) formationVm.loadHome()
                             }
+                            // Swipe pager and the section dots/back/next buttons are
+                            // two views of the same journeySection state.
+                            LaunchedEffect(sessionPager) {
+                                snapshotFlow { sessionPager.settledPage }.collect {
+                                    if (journeySection != it) journeySection = it
+                                }
+                            }
+                            LaunchedEffect(journeySection) {
+                                if (sessionPager.currentPage != journeySection) {
+                                    sessionPager.animateScrollToPage(journeySection)
+                                }
+                            }
+                            // Web's Convex useQuery keeps Home / Paths / the open path
+                            // fresh. Poll while the app is in the foreground.
+                            val lifecycleOwner = LocalLifecycleOwner.current
+                            LaunchedEffect(lifecycleOwner, googleSignedIn, onboardingDone) {
+                                lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                                    while (true) {
+                                        formationVm.loadHome()
+                                        formationVm.loadDiscovery()
+                                        openedPathId?.let { formationVm.loadOverview(it, silent = true) }
+                                        delay(15_000)
+                                    }
+                                }
+                            }
+                            // Reminders only exist while a path is active (web parity).
+                            LaunchedEffect(homeUi) { ReminderScheduler.sync(context) }
                             // Web: the "My Journey" nav item is a link to /my-journey,
                             // so it always resolves to the path list — never back into
                             // a session the user has navigated away from.
@@ -369,6 +426,7 @@ fun LampStandApp(
                                     journeySection = 0
                                     selectedSessionId = null
                                     sessionError = null
+                                    openedPathId = null
                                 }
                                 selectedTab = tab
                             }
@@ -398,7 +456,7 @@ fun LampStandApp(
                                 (profileFirstName.take(1) + profileLastName.take(1)).uppercase()
                                     .ifBlank { profileEmail.take(1).uppercase().ifBlank { "?" } }
                             val pill = when (home?.state) {
-                                "active" -> "ACTIVE PATH . DAY ${home.currentDay ?: 1} OF ${home.totalDays ?: 7}"
+                                "active" -> "ACTIVE PATH . DAY ${home.currentDay?.toInt() ?: 1} OF ${home.totalDays?.toInt() ?: 7}"
                                 "complete" -> "COMPLETED PATH"
                                 else -> "NO ACTIVE PATH"
                             }
@@ -407,7 +465,7 @@ fun LampStandApp(
                             // number, which is 1 unless the path is active (the
                             // backend only sets currentDay for active paths).
                             val dayChip =
-                                "Day ${home?.currentDay ?: 1}: Naming the Struggle . 7 min"
+                                "Day ${home?.currentDay?.toInt() ?: 1}: Naming the Struggle . 7 min"
                             val primaryText = when (home?.state) {
                                 "active" -> "Continue Today’s Session"
                                 "complete" -> "Review Journey"
@@ -424,7 +482,11 @@ fun LampStandApp(
                                 if (effectiveSessionId != null) formationVm.loadSession(effectiveSessionId)
                             }
                             val liveSession = (sessionUi as? com.example.lampstand.formation.SessionUi.Content)?.session
-                            if (showProfileEdit) {
+                            if (showPrivacy) {
+                                PrivacyPolicyScreen(onBack = { showPrivacy = false })
+                            } else if (showTerms) {
+                                TermsOfServiceScreen(onBack = { showTerms = false })
+                            } else if (showProfileEdit) {
                                 val savedReminder = ServiceLocator.reminderSettings()
                                 ProfileEditScreen(
                                     initialFirstName = profileFirstName,
@@ -460,7 +522,10 @@ fun LampStandApp(
                                                         times[slot]?.let { (h, m) ->
                                                             ServiceLocator.saveReminderTime(study, h, m)
                                                         }
+                                                    } else {
+                                                        ServiceLocator.clearReminderTime()
                                                     }
+                                                    ReminderScheduler.sync(context)
                                                     showProfileEdit = false
                                                     formationVm.loadMe()
                                                     formationVm.loadHome()
@@ -481,13 +546,17 @@ fun LampStandApp(
                                         selectedTab = 2
                                         journeyDashboardFromPaths = true
                                         showJourneyDashboard = true
-                                        home?.pathId?.let(formationVm::loadOverview)
+                                        home?.pathId?.let {
+                                            openedPathId = it
+                                            formationVm.loadOverview(it)
+                                        }
                                     },
                                     onPathClick = { pathId ->
                                         showFandA = false
                                         selectedTab = 2
                                         journeyDashboardFromPaths = true
                                         showJourneyDashboard = true
+                                        openedPathId = pathId
                                         formationVm.loadOverview(pathId)
                                     },
                                     onComingSoonClick = { pathId, onResult ->
@@ -513,6 +582,15 @@ fun LampStandApp(
                                 )
                                 2 -> if (!showSession) {
                                     val listOverview = (overviewUi as? com.example.lampstand.formation.OverviewUi.Content)?.overview
+                                    // Web PathDetail auto-start: opening a path with no
+                                    // userPathId calls paths:startPath once, then reloads.
+                                    LaunchedEffect(listOverview?.pathId, listOverview?.userPathId) {
+                                        val overview = listOverview ?: return@LaunchedEffect
+                                        if (overview.userPathId == null && autoStartedPath != overview.pathId) {
+                                            autoStartedPath = overview.pathId
+                                            formationVm.startPath(overview.pathId)
+                                        }
+                                    }
                                     val dashboardDescription = listOverview?.description
                                         ?: discoveryItems.firstOrNull { it.pathId == home?.pathId }?.description
                                         ?: "Learn to rest in God\u2019s unchanging character even when the path ahead is unclear or unsettling."
@@ -520,7 +598,7 @@ fun LampStandApp(
                                         val dashboardSessions = listOverview?.sessions?.map {
                                             JourneyDashboardSession(
                                                 sessionId = it.sessionId,
-                                                dayNumber = it.dayNumber,
+                                                dayNumber = it.dayNumber.toInt(),
                                                 title = it.title,
                                                 status = it.status
                                             )
@@ -561,12 +639,17 @@ fun LampStandApp(
                                                 ?: home?.pathTitle
                                                 ?: "Trust in Uncertainty",
                                             description = dashboardDescription,
-                                            totalDays = listOverview?.totalDays ?: home?.totalDays ?: 7,
+                                            totalDays = (listOverview?.totalDays ?: home?.totalDays)?.toInt() ?: 7,
                                             sessions = dashboardSessions,
-                                            currentDay = availableSession?.dayNumber
-                                                ?: lastCompletedSession?.dayNumber,
+                                            currentDay = (availableSession?.dayNumber
+                                                ?: lastCompletedSession?.dayNumber)?.toInt(),
                                             isReviewing = availableSession == null && lastCompletedSession != null,
-                                            selectedIndex = if (journeyDashboardFromPaths) 1 else 2
+                                            selectedIndex = if (journeyDashboardFromPaths) 1 else 2,
+                                            isLoading = overviewUi is com.example.lampstand.formation.OverviewUi.Loading,
+                                            loadError = (overviewUi as? com.example.lampstand.formation.OverviewUi.Error)?.message,
+                                            onRetry = {
+                                                (openedPathId ?: home?.pathId)?.let { formationVm.loadOverview(it) }
+                                            }
                                         )
                                     } else {
                                         // Web /my-journey: the Journey tab's entry screen —
@@ -574,7 +657,10 @@ fun LampStandApp(
                                         JourneyListScreen(
                                             onItemSelected = onNavTab,
                                             onPathClick = {
-                                                home?.pathId?.let(formationVm::loadOverview)
+                                                home?.pathId?.let {
+                                                    openedPathId = it
+                                                    formationVm.loadOverview(it)
+                                                }
                                                 journeyDashboardFromPaths = false
                                                 showJourneyDashboard = true
                                             },
@@ -584,7 +670,12 @@ fun LampStandApp(
                                             pathDescription = listOverview?.description
                                                 ?: discoveryItems.firstOrNull { it.pathId == home?.pathId }?.description
                                                 ?: "Grow in understanding God's character through these curated paths",
-                                            durationDays = home?.totalDays ?: 7
+                                            durationDays = home?.totalDays?.toInt() ?: 7,
+                                            isLoading = overviewUi is com.example.lampstand.formation.OverviewUi.Loading,
+                                            loadError = (overviewUi as? com.example.lampstand.formation.OverviewUi.Error)?.message,
+                                            onRetry = {
+                                                (openedPathId ?: home?.pathId)?.let { formationVm.loadOverview(it) }
+                                            }
                                         )
                                     }
                                 } else {
@@ -605,9 +696,11 @@ fun LampStandApp(
                                                     // when the toast dismisses (2000ms).
                                                     Toast.makeText(
                                                         context,
-                                                        "Day ${liveSession?.dayNumber ?: home?.currentDay ?: ""} Completed".trim(),
+                                                        "Day ${(liveSession?.dayNumber ?: home?.currentDay)?.toInt() ?: ""} Completed".trim(),
                                                         Toast.LENGTH_SHORT
                                                     ).show()
+                                                    ServiceLocator.recordSessionCompletedNow()
+                                                    ReminderScheduler.sync(context)
                                                     // Back to the backend's idea of "today" so the next
                                                     // available session is picked up after a completion.
                                                     selectedSessionId = null
@@ -699,7 +792,16 @@ fun LampStandApp(
                                                 selectedTab = 0
                                             }
                                         )
-                                        else -> when (journeySection) {
+                                        else -> Column(modifier = Modifier.fillMaxSize()) {
+                                            ScreenStatusBanner(
+                                                message = sessionError,
+                                                loading = sessionUi is com.example.lampstand.formation.SessionUi.Loading
+                                            )
+                                            HorizontalPager(
+                                                state = sessionPager,
+                                                modifier = Modifier.weight(1f)
+                                            ) { page ->
+                                                when (page) {
                                         1 -> com.example.lampstand.journey.JourneyScreenTwo(
                                             onBack = { journeySection = 0 },
                                             onNext = { journeySection = 2 },
@@ -720,7 +822,7 @@ fun LampStandApp(
                                                 ?: emptyList()
                                         )
                                         4 -> com.example.lampstand.journey.JourneyPrayerScreen(
-                                            // Web S4 back → section 3 (Application).
+                                            // Web S4 back �+' section 3 (Application).
                                             onBack = { journeySection = 3 },
                                             onBackToPath = backToJourney,
                                             onComplete = completeCurrentSession,
@@ -729,20 +831,22 @@ fun LampStandApp(
                                             prayerText = liveSession?.guidedPrayer
                                         )
                                         else -> JourneyScreen(
-                                            // Web S0 back → the Journey list.
+                                            // Web S0 back �+' the Journey list.
                                             onBack = backToJourney,
                                             onNext = { journeySection = 1 },
                                             sessionTitle = liveSession?.title ?: "Finding Stillness",
                                             scriptureVerse = liveSession?.scriptureVerse
-                                                ?: "“Be still, and know that I am God; I will be exalted among the nations, I will be exalted in the earth.”",
+                                                ?: "�?oBe still, and know that I am God; I will be exalted among the nations, I will be exalted in the earth.�??",
                                             scriptureReference = liveSession?.scriptureReference ?: "Psalm 46:10 (NIV)",
                                             introText = liveSession?.applicationText
-                                                ?: "Finding Stillness invites you to quiet your heart, slow your mind, and become aware of God’s steady presence in the midst of life’s noise.",
+                                                ?: "Finding Stillness invites you to quiet your heart, slow your mind, and become aware of God�?Ts steady presence in the midst of life�?Ts noise.",
                                             // Web parity: section label is always TODAY'S JOURNEY.
-                                            dayLabel = "TODAY’S JOURNEY",
-                                            currentSection = journeySection,
+                                            dayLabel = "TODAY�?TS JOURNEY",
+                                            currentSection = page,
                                             onDotClick = { journeySection = it }
                                         )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -755,6 +859,8 @@ fun LampStandApp(
                                     // Root tab has nothing to pop — fall back to Home.
                                     onBack = { selectedTab = 0 },
                                     onPersonalInfoClick = { showProfileEdit = true },
+                                    onPrivacyClick = { showPrivacy = true },
+                                    onTermsClick = { showTerms = true },
                                     onLogOutClick = {
                                         scope.launch {
                                             sessionLoading = true
@@ -787,6 +893,9 @@ fun LampStandApp(
                                     dayChipText = dayChip,
                                     primaryButtonText = primaryText,
                                     recommendationCount = liveCount,
+                                    isLoading = homeUi is com.example.lampstand.formation.HomeUi.Loading,
+                                    loadError = (homeUi as? com.example.lampstand.formation.HomeUi.Error)?.message,
+                                    onRetry = { formationVm.loadHome() },
                                     // Web: the recommendation card pushes /paths.
                                     onRecommendedClick = { selectedTab = 1 },
                                     onContinueClick = {

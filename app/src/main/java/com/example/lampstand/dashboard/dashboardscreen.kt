@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.lampstand.R
+import com.example.lampstand.ui.ScreenStatusBanner
 import com.example.lampstand.ui.theme.LampStandTheme
 
 private val Primary = Color(0xFF335E78)
@@ -61,7 +62,10 @@ fun DashboardScreen(
     pathTitle: String = "Trust in Uncertainty",
     dayChipText: String = "Day 4: Naming the Struggle . 7 min",
     primaryButtonText: String = "Continue Today’s Session",
-    recommendationCount: Int = 6
+    recommendationCount: Int = 6,
+    isLoading: Boolean = false,
+    loadError: String? = null,
+    onRetry: (() -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
@@ -75,6 +79,11 @@ fun DashboardScreen(
             title = welcomeText,
             notificationCount = 1,
             onNotificationClick = onNotificationClick
+        )
+        ScreenStatusBanner(
+            message = loadError,
+            loading = isLoading,
+            onRetry = onRetry
         )
 
         Column(

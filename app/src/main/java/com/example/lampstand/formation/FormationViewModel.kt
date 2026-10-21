@@ -73,14 +73,19 @@ class FormationViewModel : ViewModel() {
         }
     }
 
-    fun loadOverview(pathId: String) {
+    fun loadOverview(pathId: String, silent: Boolean = false) {
         viewModelScope.launch {
-            _overview.value = OverviewUi.Loading
+            if (!silent && _overview.value !is OverviewUi.Content) {
+                _overview.value = OverviewUi.Loading
+            }
             repo.getOverview(pathId)
                 .onSuccess { _overview.value = OverviewUi.Content(it) }
                 .onFailure {
                     android.util.Log.w("Formation", "getPathOverview($pathId) failed", it)
-                    _overview.value = OverviewUi.Error(it.message ?: "Couldn't load path")
+                    // Keep the last good overview on screen during a refresh.
+                    if (_overview.value !is OverviewUi.Content) {
+                        _overview.value = OverviewUi.Error(it.message ?: "Couldn't load path")
+                    }
                 }
         }
     }
@@ -101,7 +106,9 @@ class FormationViewModel : ViewModel() {
             if (meR.isSuccess) _me.value = me
             val home = homeR.getOrNull()
             if (home == null) {
-                _home.value = HomeUi.Error(homeR.exceptionOrNull()?.message ?: "Couldn't load home")
+                if (_home.value !is HomeUi.Content) {
+                    _home.value = HomeUi.Error(homeR.exceptionOrNull()?.message ?: "Couldn't load home")
+                }
                 return@launch
             }
             val firstName = me?.firstName?.takeIf { it.isNotBlank() }

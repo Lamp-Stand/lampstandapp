@@ -96,6 +96,8 @@ fun ProfileScreen(
     onItemSelected: (Int) -> Unit = {},
     onBack: () -> Unit = {},
     onPersonalInfoClick: () -> Unit = {},
+    onPrivacyClick: () -> Unit = {},
+    onTermsClick: () -> Unit = {},
     onLogOutClick: () -> Unit = {}
 ) {
     Column(
@@ -197,6 +199,18 @@ fun ProfileScreen(
                 title = "Personal Information",
                 subtitle = "Edit your personal details.",
                 onClick = onPersonalInfoClick
+            )
+            HorizontalDivider(thickness = 1.dp, color = Color(0xFF3A3A3A))
+            ProfileRow(
+                title = "Privacy Policy",
+                subtitle = "How your data is handled.",
+                onClick = onPrivacyClick
+            )
+            HorizontalDivider(thickness = 1.dp, color = Color(0xFF3A3A3A))
+            ProfileRow(
+                title = "Terms of Service",
+                subtitle = "The rules for using Lampstand.",
+                onClick = onTermsClick
             )
             HorizontalDivider(thickness = 1.dp, color = Color(0xFF3A3A3A))
             // "Manage Password" intentionally absent — Convex auth is OTP/Google

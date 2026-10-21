@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.lampstand.R
 import com.example.lampstand.dashboard.BottomNavBar
+import com.example.lampstand.ui.ScreenStatusBanner
 import com.example.lampstand.ui.theme.LampStandTheme
 
 /**
@@ -53,7 +54,10 @@ fun JourneyListScreen(
     pathTitle: String = "",
     pathDescription: String = "",
     durationDays: Int = 7,
-    imageRes: Int = R.drawable.shipsail
+    imageRes: Int = R.drawable.shipsail,
+    isLoading: Boolean = false,
+    loadError: String? = null,
+    onRetry: (() -> Unit)? = null
 ) {
     val hasPath = pathId != null && pathTitle.isNotBlank()
     Column(
@@ -62,6 +66,11 @@ fun JourneyListScreen(
             .background(Color.White)
             .statusBarsPadding()
     ) {
+        ScreenStatusBanner(
+            message = loadError,
+            loading = isLoading,
+            onRetry = onRetry
+        )
         Box(
             modifier = Modifier
                 .weight(1f)
