@@ -5,10 +5,10 @@ Goal: Google login via Convex Auth browser flow (Custom Tab -> Google consent ->
 App address (must be allowlisted in backend):
 com.example.lampstand://oauth2redirect
 
-App side — VERIFIED CORRECT, don't change:
-- app/build.gradle.kts: applicationId = "com.example.lampstand"
-- data/remote/GoogleOAuth.kt:31: REDIRECT_URI = "com.example.lampstand://oauth2redirect", sent as params:{ redirectTo } in auth:signIn action
-- AndroidManifest.xml:39-40: scheme="com.example.lampstand" host="oauth2redirect" + MainActivity reads ?code=
+App side — VERIFIED CORRECT:
+- app/build.gradle.kts: applicationId = "net.lampstandapp.app" (namespace same)
+- data/remote/GoogleOAuth.kt: REDIRECT_URI = "com.example.lampstand://oauth2redirect", sent as params:{ redirectTo } in auth:signIn action. The scheme is intentionally kept on the old value so the existing backend allowlist keeps working; do not rename it until the backend allowlists the new URI.
+- AndroidManifest.xml: scheme="com.example.lampstand" host="oauth2redirect" + MainActivity reads ?code=
 - ConvexConfig: cloud https://exciting-dodo-656.convex.cloud/, site https://exciting-dodo-656.convex.site/
 - Fixed 2 app bugs along the way: stray "vcx" typo + extra "}" on .onFailure in MainActivity.kt (~95 cascade errors, now fixed).
 
