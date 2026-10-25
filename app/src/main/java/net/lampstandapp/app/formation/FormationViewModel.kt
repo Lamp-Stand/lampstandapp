@@ -154,19 +154,30 @@ class FormationViewModel : ViewModel() {
         }
     }
 
+    // Only the newest session fetch may publish a result. Without this, a slow
+    // request for one session (or a locked next-day fetch) could overwrite the
+    // content/error of the session the user is actually reading.
+    private var sessionRequestSeq = 0
+
     /** Web session page: paths:getSessionContent (lock enforced server-side). */
     fun loadSession(sessionId: String) {
+        val requestSeq = ++sessionRequestSeq
         viewModelScope.launch {
             _session.value = SessionUi.Loading
             repo.getSessionContent(sessionId)
-                .onSuccess { _session.value = SessionUi.Content(it) }
+                .onSuccess {
+                    if (requestSeq == sessionRequestSeq) _session.value = SessionUi.Content(it)
+                }
                 .onFailure {
+                    if (requestSeq != sessionRequestSeq) return@onFailure
                     val raw = it.message ?: "Session not found"
                     val message = when {
                         raw.contains("SESSION_LOCKED") ->
                             "This session is locked. Come back tomorrow to continue."
                         raw.contains("SESSION_NOT_FOUND") ->
                             "Session not found."
+                        raw.contains("Server Error") || raw.contains("Request ID") ->
+                            "We couldn't load this session. Please try again."
                         else -> raw
                     }
                     _session.value = SessionUi.Error(message)

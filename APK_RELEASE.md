@@ -2,10 +2,10 @@
 
 ## Download
 
-- [Download LampStand 1.0 APK](dist/LampStand-1.0.apk)
+- [Download LampStand 1.0 APK](https://github.com/xynydomega/lampstandapp/releases/latest/download/LampStand-1.0.apk)
 - [SHA-256 checksum](dist/SHA256.txt)
 - Local file: `C:\Users\XYNYDOMEGA\AndroidStudioProjects\LampStand\dist\LampStand-1.0.apk`
-- Public website URL: **Pending upload by PM** — upload `dist/LampStand-1.0.apk`, then replace this line with the website link.
+- Public direct link: https://github.com/xynydomega/lampstandapp/releases/latest/download/LampStand-1.0.apk
 
 ## APK details
 

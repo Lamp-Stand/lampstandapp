@@ -74,6 +74,8 @@ data class SessionContentDto(
     val applicationText: String? = null,
     val reflectionQuestions: List<String> = emptyList(),
     val guidedPrayer: String? = null,
+    // paths:getSessionContent returns "available" | "completed".
+    val sessionStatus: String? = null,
     // Convex spreads ...session so id may arrive as _id; keep both.
     val _id: String? = null
 )

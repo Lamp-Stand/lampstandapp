@@ -23,7 +23,12 @@ object ServiceLocator {
     private const val KEY_OAUTH_VERIFIER = "oauth_verifier_v1"
     private const val KEY_ONBOARDING_DONE = "onboarding_done_v1"
     private const val KEY_HOME_CACHE = "cache_home_v1"
+    private const val KEY_HOME_CACHE_AT = "cache_home_at_v1"
     private const val KEY_LAST_SESSION_COMPLETED = "last_session_completed_at_v1"
+    private const val KEY_REMINDER_ENABLED = "reminder_enabled_v1"
+    private const val KEY_LAST_APP_OPEN = "last_app_open_at_v1"
+    private const val KEY_LAST_REMINDER_AT = "last_reminder_at_v1"
+    private const val KEY_REMINDER_MESSAGE_INDEX = "reminder_message_index_v1"
 
     private var appContext: Context? = null
 
@@ -394,48 +399,88 @@ object ServiceLocator {
         Unit
     }
 
-    /** Local-only reminder clock time (the backend stores no clock-time field). */
-    data class ReminderSettings(val enabled: Boolean, val slot: Int, val hour: Int, val minute: Int)
-
-    fun reminderSettings(): ReminderSettings? {
-        val raw = try {
-            cachePrefs?.getString("reminder_slot", null)
-        } catch (_: Exception) {
-            null
-        } ?: return null
-        val hour = try {
-            cachePrefs?.getInt("reminder_hour", -1) ?: -1
-        } catch (_: Exception) {
-            -1
-        }
-        val minute = try {
-            cachePrefs?.getInt("reminder_minute", -1) ?: -1
-        } catch (_: Exception) {
-            -1
-        }
-        return ReminderSettings(enabled = true, slot = slotForStudyTime(raw), hour = hour, minute = minute)
+    /**
+     * Reminders are on by default; the switch in Profile is the only opt-out.
+     * Keeping this as an explicit flag (rather than inferring from saved times)
+     * means an off choice survives restarts and updates.
+     */
+    fun reminderEnabled(): Boolean = try {
+        cachePrefs?.getBoolean(KEY_REMINDER_ENABLED, true) ?: true
+    } catch (_: Exception) {
+        true
     }
 
-    /** Persist the exact notification time locally (backend has no clock-time field). */
-    fun saveReminderTime(slot: String, hour: Int, minute: Int) {
-        if (hour !in 0..23 || minute !in 0..59) return
+    fun setReminderEnabled(enabled: Boolean) {
         try {
-            cachePrefs?.edit()
-                ?.putString("reminder_slot", slot)
-                ?.putInt("reminder_hour", hour)
-                ?.putInt("reminder_minute", minute)
-                ?.apply()
+            cachePrefs?.edit()?.putBoolean(KEY_REMINDER_ENABLED, enabled)?.apply()
         } catch (_: Exception) { /* best-effort */ }
     }
 
-    fun clearReminderTime() {
+    /** Launching the app (including starting a session) marks the day as opened. */
+    fun markAppOpened() {
         try {
-            cachePrefs?.edit()
-                ?.remove("reminder_slot")
-                ?.remove("reminder_hour")
-                ?.remove("reminder_minute")
-                ?.apply()
+            cachePrefs?.edit()?.putLong(KEY_LAST_APP_OPEN, System.currentTimeMillis())?.apply()
         } catch (_: Exception) { /* best-effort */ }
+    }
+
+    fun appOpenedToday(): Boolean = isToday(lastAppOpenAt())
+
+    private fun lastAppOpenAt(): Long = try {
+        cachePrefs?.getLong(KEY_LAST_APP_OPEN, 0L) ?: 0L
+    } catch (_: Exception) {
+        0L
+    }
+
+    fun lastReminderAt(): Long = try {
+        cachePrefs?.getLong(KEY_LAST_REMINDER_AT, 0L) ?: 0L
+    } catch (_: Exception) {
+        0L
+    }
+
+    fun recordReminderShown() {
+        try {
+            cachePrefs?.edit()?.putLong(KEY_LAST_REMINDER_AT, System.currentTimeMillis())?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+    }
+
+    /** Rotate through a message pool so the same nudge is not repeated. */
+    fun nextReminderMessageIndex(poolSize: Int): Int {
+        if (poolSize <= 0) return 0
+        val current = try {
+            cachePrefs?.getInt(KEY_REMINDER_MESSAGE_INDEX, 0) ?: 0
+        } catch (_: Exception) {
+            0
+        }
+        val index = ((current % poolSize) + poolSize) % poolSize
+        try {
+            cachePrefs?.edit()?.putInt(KEY_REMINDER_MESSAGE_INDEX, (index + 1) % poolSize)?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+        return index
+    }
+
+    /** True when the whole active path is finished, so reminders should stop. */
+    fun isPathComplete(): Boolean = cachedHomeState()?.state == "complete"
+
+    /** True once today's session is done, locally or per today's cached home state. */
+    fun todaySessionCompleted(): Boolean {
+        if (completedSessionToday()) return true
+        val home = cachedHomeState() ?: return false
+        // Only trust todayDone while the cached home snapshot is from today;
+        // yesterday's "done" must not silence the new day's reminders.
+        val cachedAt = try {
+            cachePrefs?.getLong(KEY_HOME_CACHE_AT, 0L) ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
+        return isToday(cachedAt) && home.todayDone == true
+    }
+
+    private fun isToday(timestamp: Long): Boolean {
+        if (timestamp <= 0L) return false
+        val then = Calendar.getInstance().apply { timeInMillis = timestamp }
+        val now = Calendar.getInstance()
+        return then.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
+            then.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR)
     }
 
     /** Last paths:getHomeState response, so reminders can mirror web's "only while active". */
@@ -467,11 +512,7 @@ object ServiceLocator {
         } catch (_: Exception) {
             0L
         }
-        if (last <= 0L) return false
-        val done = Calendar.getInstance().apply { timeInMillis = last }
-        val now = Calendar.getInstance()
-        return done.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
-            done.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR)
+        return isToday(last)
     }
 
     // ── Onboarding (same mutations as web, zero backend changes) ──
@@ -515,8 +556,8 @@ object ServiceLocator {
                 bearer
             )
         )
-        // Local-only: persist the exact notification time (backend has no clock-time field).
-        saveReminderTime(studyTimePreference, reminderHour, reminderMinute)
+        // Reminders start automatically after onboarding; Profile has the opt-out.
+        setReminderEnabled(true)
         saveOnboardingCompleted(true)
         Unit
     }

@@ -99,6 +99,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ServiceLocator.init(this)
+        // Opening the app (including starting a session) counts as "opened today"
+        // so the reminder tone switches from "come back" to "finish with us".
+        ServiceLocator.markAppOpened()
         // Re-arm after returning from notification/exact-alarm settings.
         ReminderScheduler.sync(this)
     }
@@ -129,7 +132,7 @@ class MainActivity : ComponentActivity() {
             ReminderScheduler.sync(this)
             val granted = grantResults.firstOrNull() ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (granted && ServiceLocator.reminderSettings() != null) {
+            if (granted && ServiceLocator.reminderEnabled()) {
                 ReminderScheduler.requestExactAlarmAccess(this)
             }
         }
@@ -471,6 +474,11 @@ fun LampStandApp(
                             var isCompleting by remember { mutableStateOf(false) }
                             var donationLoading by remember { mutableStateOf(false) }
                             var sessionError by remember { mutableStateOf<String?>(null) }
+                            // Re-reading a completed day and tapping Complete tells the
+                            // user when the next session unlocks instead of re-completing.
+                            var sessionAvailabilityMessage by rememberSaveable {
+                                mutableStateOf<String?>(null)
+                            }
                             LaunchedEffect(googleSignedIn, onboardingDone) { formationVm.loadDiscovery() }
                             // Web parity: the dashboard's Convex useQuery is live and
                             // / remounts on every navigation, so Home always shows the
@@ -517,6 +525,7 @@ fun LampStandApp(
                                     journeySection = 0
                                     selectedSessionId = null
                                     sessionError = null
+                                    sessionAvailabilityMessage = null
                                     openedPathId = null
                                 }
                                 selectedTab = tab
@@ -577,8 +586,17 @@ fun LampStandApp(
                             val effectiveSessionId = selectedSessionId
                                 ?: home?.sessionId
                                 ?: overviewForSession?.sessions?.firstOrNull { it.status == "available" }?.sessionId
-                            LaunchedEffect(effectiveSessionId) {
-                                if (effectiveSessionId != null) formationVm.loadSession(effectiveSessionId)
+                            // Load only while the session screen is actually open.
+                            // Loading on every effectiveSessionId change meant that the
+                            // moment completeSession bumped currentDay, Home refreshed
+                            // with the next (still locked) sessionId and that fetch
+                            // painted "Session unavailable" over the "Day X Completed"
+                            // toast. Re-opening the same session also re-runs here so a
+                            // previous failed load cannot stick around.
+                            LaunchedEffect(showSession, selectedSessionId, postCompleteFlow) {
+                                if (showSession && postCompleteFlow == null && selectedSessionId != null) {
+                                    formationVm.loadSession(selectedSessionId!!)
+                                }
                             }
                             val liveSession = (sessionUi as? net.lampstandapp.app.formation.SessionUi.Content)?.session
                             val sessionLoadError =
@@ -588,22 +606,17 @@ fun LampStandApp(
                             } else if (showTerms) {
                                 TermsOfServiceScreen(onBack = { showTerms = false })
                             } else if (showProfileEdit) {
-                                val savedReminder = ServiceLocator.reminderSettings()
                                 ProfileEditScreen(
                                     initialFirstName = profileFirstName,
                                     initialLastName = profileLastName,
                                     initialPhone = me?.phoneNumber ?: user.phone,
-                                    initialReminderEnabled = savedReminder?.enabled == true,
-                                    initialReminderSlot = savedReminder?.slot
-                                        ?: ServiceLocator.slotForStudyTime(me?.studyTimePreference),
-                                    initialReminderHour = savedReminder?.hour ?: -1,
-                                    initialReminderMinute = savedReminder?.minute ?: -1,
+                                    initialReminderEnabled = ServiceLocator.reminderEnabled(),
                                     onBack = { showProfileEdit = false },
                                     onItemSelected = {
                                         showProfileEdit = false
                                         selectedTab = it
                                     },
-                                    onSave = { first, last, phone, reminderEnabled, slot, times ->
+                                    onSave = { first, last, phone, reminderEnabled ->
                                         scope.launch {
                                             // Real identity lives in Convex: users:me feeds
                                             // the Dashboard + Profile, so write there and
@@ -611,20 +624,16 @@ fun LampStandApp(
                                             // signed in" if the session has gone away.
                                             ServiceLocator.updateProfile(first, last, phone)
                                                 .onSuccess {
+                                                    ServiceLocator.setReminderEnabled(reminderEnabled)
                                                     if (reminderEnabled) {
-                                                        val study = ServiceLocator.studyTimeForSlot(slot)
                                                         ServiceLocator.updateNotificationPreferences(
-                                                            studyTimePreference = study,
+                                                            studyTimePreference = me?.studyTimePreference
+                                                                ?: "early_morning",
                                                             contactPreference = me?.contactPreference ?: "email",
                                                             phone = phone,
                                                             timezone = me?.timezone
                                                                 ?: java.util.TimeZone.getDefault().id
                                                         )
-                                                        times[slot]?.let { (h, m) ->
-                                                            ServiceLocator.saveReminderTime(study, h, m)
-                                                        }
-                                                    } else {
-                                                        ServiceLocator.clearReminderTime()
                                                     }
                                                     ReminderScheduler.sync(context)
                                                     if (reminderEnabled) {
@@ -728,6 +737,8 @@ fun LampStandApp(
                                                     selectedSessionId = sid
                                                     journeySection = 0
                                                     postCompleteFlow = null
+                                                    sessionError = null
+                                                    sessionAvailabilityMessage = null
                                                     showSession = true
                                                 } else {
                                                     authError("No session available yet")
@@ -737,6 +748,8 @@ fun LampStandApp(
                                                 selectedSessionId = sid
                                                 journeySection = 0
                                                 postCompleteFlow = null
+                                                sessionError = null
+                                                sessionAvailabilityMessage = null
                                                 showSession = true
                                             },
                                             title = listOverview?.title
@@ -785,16 +798,65 @@ fun LampStandApp(
                                 } else {
                                     // Web /my-journey/[id]/session: 5-section pager plus
                                     // the post-completion feedback chain.
+                                    val nextAvailabilityMessage: (Int) -> String = { nextDay ->
+                                        net.lampstandapp.app.journey.nextSessionAvailabilityMessage(
+                                            nextDayNumber = nextDay,
+                                            totalDays = (overviewForSession?.totalDays
+                                                ?: home?.totalDays ?: 7.0).toInt(),
+                                            startedAtMillis = overviewForSession?.startedAt?.toLong()
+                                        )
+                                    }
                                     val completeCurrentSession: () -> Unit = {
-                                        val sid = effectiveSessionId
+                                        // Prefer the id of the session actually on screen.
+                                        // After a completion home.sessionId can point at the
+                                        // next, still-locked day; using that as a fallback
+                                        // while re-reading an older session triggered a
+                                        // SESSION_LOCKED error.
+                                        val sid = liveSession?._id?.takeIf { it.isNotBlank() }
+                                            ?: liveSession?.sessionId?.takeIf { it.isNotBlank() }
+                                            ?: effectiveSessionId
+                                        val alreadyCompleted =
+                                            liveSession?.sessionStatus == "completed" ||
+                                                overviewForSession?.sessions
+                                                    ?.firstOrNull { it.sessionId == effectiveSessionId }
+                                                    ?.status == "completed"
                                         if (sid == null) {
                                             sessionError = "No available session — start a path first"
+                                        } else if (alreadyCompleted) {
+                                            // Re-reading a completed day: never write a second
+                                            // completion. Keep the unavailable-style screen and
+                                            // tell the user when the next session opens.
+                                            sessionError = null
+                                            val viewedDay = liveSession?.dayNumber?.toInt()
+                                            val totalDays =
+                                                (overviewForSession?.totalDays
+                                                    ?: home?.totalDays ?: 7.0).toInt()
+                                            val nextDay = if (home?.state == "complete") {
+                                                totalDays + 1
+                                            } else {
+                                                maxOf(
+                                                    (viewedDay ?: 0) + 1,
+                                                    home?.currentDay?.toInt() ?: 1
+                                                )
+                                            }
+                                            sessionAvailabilityMessage =
+                                                nextAvailabilityMessage(nextDay)
                                         } else {
                                             isCompleting = true
                                             sessionError = null
                                             formationVm.completeSession(sid) { r ->
                                                 isCompleting = false
                                                 r.onSuccess { res ->
+                                                    if (!res.isNew) {
+                                                        // Already completed on the backend
+                                                        // (double tap / stale screen): show the
+                                                        // next availability instead of toasting
+                                                        // the same day again.
+                                                        sessionAvailabilityMessage =
+                                                            nextAvailabilityMessage(res.nextDay.toInt())
+                                                        formationVm.loadHome()
+                                                        return@onSuccess
+                                                    }
                                                     // Web GuidedPrayerSection: toast Day X
                                                     // Completed, and navigation only fires
                                                     // when the toast dismisses (2000ms).
@@ -841,6 +903,7 @@ fun LampStandApp(
                                         journeySection = 0
                                         selectedSessionId = null
                                         sessionError = null
+                                        sessionAvailabilityMessage = null
                                     }
                                     // Web: top-left back on every session section returned
                                     // to /my-journey/[id]; with that page gone, it goes
@@ -849,6 +912,7 @@ fun LampStandApp(
                                         journeySection = 0
                                         postCompleteFlow = null
                                         sessionError = null
+                                        sessionAvailabilityMessage = null
                                         showSession = false
                                     }
                                     when (postCompleteFlow) {
@@ -935,6 +999,13 @@ fun LampStandApp(
                                                 loading = sessionUi is net.lampstandapp.app.formation.SessionUi.Loading
                                             )
                                             when {
+                                                sessionAvailabilityMessage != null ->
+                                                    SessionUnavailableScreen(
+                                                        message = sessionAvailabilityMessage!!,
+                                                        onBack = backToJourney,
+                                                        // Informational: no retry, only back.
+                                                        onRetry = null
+                                                    )
                                                 sessionLoadError != null -> SessionUnavailableScreen(
                                                     message = sessionLoadError,
                                                     onBack = backToJourney,
@@ -1066,6 +1137,10 @@ fun LampStandApp(
                                         when {
                                             home?.state == "active" && sid != null -> {
                                                 selectedSessionId = sid
+                                                journeySection = 0
+                                                postCompleteFlow = null
+                                                sessionError = null
+                                                sessionAvailabilityMessage = null
                                                 showSession = true
                                                 showJourneyDashboard = true
                                                 journeyDashboardFromPaths = false

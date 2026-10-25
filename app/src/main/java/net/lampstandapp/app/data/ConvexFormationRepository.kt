@@ -22,6 +22,7 @@ import kotlinx.serialization.json.doubleOrNull
 
 private const val KEY_DISCOVERY = "cache_discovery_v1"
 private const val KEY_HOME = "cache_home_v1"
+private const val KEY_HOME_AT = "cache_home_at_v1"
 private const val KEY_ME = "cache_me_v1"
 private fun overviewKey(id: String) = "cache_overview_v1_$id"
 
@@ -104,7 +105,10 @@ class ConvexFormationRepository(
             )
             val dto = json.decodeFromJsonElement(HomeStateDto.serializer(), ConvexClient.valueOf(envelope))
             try {
-                prefs?.edit()?.putString(KEY_HOME, json.encodeToString(HomeStateDto.serializer(), dto))?.apply()
+                prefs?.edit()
+                    ?.putString(KEY_HOME, json.encodeToString(HomeStateDto.serializer(), dto))
+                    ?.putLong(KEY_HOME_AT, System.currentTimeMillis())
+                    ?.apply()
             } catch (_: Exception) { /* best-effort */ }
             Result.success(dto)
         } catch (e: CancellationException) {
@@ -227,7 +231,10 @@ class ConvexFormationRepository(
             )
             val dto = json.decodeFromJsonElement(HomeStateDto.serializer(), ConvexClient.valueOf(envelope))
             try {
-                prefs?.edit()?.putString(KEY_HOME, json.encodeToString(HomeStateDto.serializer(), dto))?.apply()
+                prefs?.edit()
+                    ?.putString(KEY_HOME, json.encodeToString(HomeStateDto.serializer(), dto))
+                    ?.putLong(KEY_HOME_AT, System.currentTimeMillis())
+                    ?.apply()
             } catch (_: Exception) { /* best-effort */ }
         } catch (e: CancellationException) {
             throw e

@@ -21,8 +21,10 @@ import net.lampstandapp.app.data.ServiceLocator
 import java.util.Calendar
 
 /**
- * The mobile-only reminder: the web stores a study-time slot, Android also
- * keeps the exact clock time locally and fires a daily notification.
+ * Session reminders are on by default. During quiet-hours-aware slots
+ * (6:45 AM, 11:45 AM, 4:45 PM, 9:45 PM) the app nudges the user to start or
+ * finish today's session, stopping once the session is completed or the user
+ * switches reminders off in Profile.
  */
 object ReminderScheduler {
     private const val CHANNEL_ID = "lampstand_daily_reminder"
@@ -36,45 +38,43 @@ object ReminderScheduler {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Daily Reminder",
+                    "Session Reminders",
                     NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
-                    description = "A daily nudge to spend time with God"
+                    description = "Gentle nudges to start or finish today's session"
                 }
             )
         }
     }
 
     /**
-     * Schedule whenever a reminder time is saved, including before a path is
-     * started. The alarm itself is one-shot so it can use the exact, idle-safe
-     * API and re-arm after each delivery.
+     * Quiet hours run 6:45 AM to 10:00 PM. Inside that window a nudge fires
+     * every 5 hours, and the one-shot alarm re-arms itself after each delivery
+     * until today's session is completed or the user switches reminders off.
      */
+    private val reminderSlots = listOf(6 to 45, 11 to 45, 16 to 45, 21 to 45)
+
+    /** Suppress a re-arm of the slot that just fired if the OS delivered it early. */
+    private const val REARM_GUARD_MS = 10 * 60 * 1000L
+
     fun sync(context: Context) {
         ServiceLocator.init(context)
-        val settings = ServiceLocator.reminderSettings()
-        val home = ServiceLocator.cachedHomeState()
-        val validTime = settings != null && settings.hour in 0..23 && settings.minute in 0..59
-        if (settings != null && settings.enabled && validTime && home?.state != "complete") {
-            schedule(context, settings.hour, settings.minute)
-        } else {
+        val active = ServiceLocator.hasConvexSession() &&
+            ServiceLocator.reminderEnabled() &&
+            !ServiceLocator.isPathComplete()
+        if (!active) {
             cancel(context)
+            return
         }
+        // Completed today? Skip the rest of today but keep tomorrow's chain
+        // alive so the user is nudged again on the next day.
+        scheduleNext(context, skipToday = ServiceLocator.todaySessionCompleted())
     }
 
-    fun schedule(context: Context, hour: Int, minute: Int) {
-        if (hour !in 0..23 || minute !in 0..59) return
+    private fun scheduleNext(context: Context, skipToday: Boolean = false) {
         ensureChannel(context)
         val alarm = context.getSystemService(AlarmManager::class.java) ?: return
-        val triggerAt = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            if (timeInMillis <= System.currentTimeMillis()) {
-                add(Calendar.DAY_OF_MONTH, 1)
-            }
-        }.timeInMillis
+        val triggerAt = nextTriggerAt(skipToday = skipToday)
         val pending = PendingIntent.getBroadcast(
             context,
             ALARM_REQUEST,
@@ -99,6 +99,31 @@ object ReminderScheduler {
                 // Never crash the UI if the OS rejects alarm scheduling.
             }
         }
+    }
+
+    internal fun nextTriggerAt(
+        now: Long = System.currentTimeMillis(),
+        skipToday: Boolean = false
+    ): Long {
+        val cutoff = maxOf(now, ServiceLocator.lastReminderAt() + REARM_GUARD_MS)
+        val calendar = Calendar.getInstance()
+        if (!skipToday) {
+            for ((hour, minute) in reminderSlots) {
+                calendar.timeInMillis = now
+                calendar.set(Calendar.HOUR_OF_DAY, hour)
+                calendar.set(Calendar.MINUTE, minute)
+                calendar.set(Calendar.SECOND, 0)
+                calendar.set(Calendar.MILLISECOND, 0)
+                if (calendar.timeInMillis > cutoff) return calendar.timeInMillis
+            }
+        }
+        calendar.timeInMillis = now
+        calendar.add(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, reminderSlots.first().first)
+        calendar.set(Calendar.MINUTE, reminderSlots.first().second)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        return calendar.timeInMillis
     }
 
     fun canScheduleExactAlarms(context: Context): Boolean {
@@ -152,10 +177,14 @@ object ReminderScheduler {
             ) == PackageManager.PERMISSION_GRANTED
             if (!granted) return
         }
-        // Don't nudge after the path is finished or once today's session is done.
-        val home = ServiceLocator.cachedHomeState()
-        if (home?.state == "complete") return
-        if (ServiceLocator.completedSessionToday()) return
+        // Don't nudge signed-out users, after the path is finished, or once
+        // today's session is done.
+        if (!ServiceLocator.hasConvexSession()) return
+        if (ServiceLocator.isPathComplete()) return
+        if (ServiceLocator.todaySessionCompleted()) return
+        val messages = ReminderMessages.pool(appOpenedToday = ServiceLocator.appOpenedToday())
+        if (messages.isEmpty()) return
+        val message = messages[ServiceLocator.nextReminderMessageIndex(messages.size)]
         ensureChannel(context)
         val openApp = PendingIntent.getActivity(
             context,
@@ -167,14 +196,16 @@ object ReminderScheduler {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Time with God")
-            .setContentText("Your daily Lampstand session is ready.")
+            .setContentTitle(message.title)
+            .setContentText(message.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message.body))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(openApp)
             .build()
         try {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+            ServiceLocator.recordReminderShown()
         } catch (_: SecurityException) {
             // Permission revoked between the check and notify.
         }
@@ -189,13 +220,15 @@ class ReminderReceiver : BroadcastReceiver() {
         if (action == Intent.ACTION_BOOT_COMPLETED ||
             action == Intent.ACTION_TIME_CHANGED ||
             action == Intent.ACTION_TIMEZONE_CHANGED ||
+            action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             action == AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED
         ) {
             ReminderScheduler.sync(context)
             return
         }
         ReminderScheduler.showNotification(context)
-        // The alarm is one-shot; always arm tomorrow's reminder after it fires.
+        // The alarm is one-shot; arm the next slot (or tomorrow after a
+        // completed session) before returning.
         ReminderScheduler.sync(context)
     }
 }
