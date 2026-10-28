@@ -26,6 +26,8 @@ object ServiceLocator {
     private const val KEY_HOME_CACHE_AT = "cache_home_at_v1"
     private const val KEY_LAST_SESSION_COMPLETED = "last_session_completed_at_v1"
     private const val KEY_REMINDER_ENABLED = "reminder_enabled_v1"
+    private const val KEY_REMINDER_ANCHOR_HOUR = "reminder_anchor_hour_v1"
+    private const val KEY_REMINDER_ANCHOR_MINUTE = "reminder_anchor_minute_v1"
     private const val KEY_LAST_APP_OPEN = "last_app_open_at_v1"
     private const val KEY_LAST_REMINDER_AT = "last_reminder_at_v1"
     private const val KEY_REMINDER_MESSAGE_INDEX = "reminder_message_index_v1"
@@ -416,6 +418,35 @@ object ServiceLocator {
         } catch (_: Exception) { /* best-effort */ }
     }
 
+    /**
+     * Anchor (first) time of the meditation reminder chain. The scheduler
+     * fires at this time, then every 5 hours after it (+5h, +10h, +15h),
+     * only while today's session is still unfinished.
+     */
+    fun reminderAnchor(): Pair<Int, Int> {
+        val hour = try {
+            cachePrefs?.getInt(KEY_REMINDER_ANCHOR_HOUR, 6) ?: 6
+        } catch (_: Exception) {
+            6
+        }
+        val minute = try {
+            cachePrefs?.getInt(KEY_REMINDER_ANCHOR_MINUTE, 45) ?: 45
+        } catch (_: Exception) {
+            45
+        }
+        return (if (hour in 0..23) hour else 6) to (if (minute in 0..59) minute else 45)
+    }
+
+    fun setReminderAnchor(hour: Int, minute: Int) {
+        if (hour !in 0..23 || minute !in 0..59) return
+        try {
+            cachePrefs?.edit()
+                ?.putInt(KEY_REMINDER_ANCHOR_HOUR, hour)
+                ?.putInt(KEY_REMINDER_ANCHOR_MINUTE, minute)
+                ?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+    }
+
     /** Launching the app (including starting a session) marks the day as opened. */
     fun markAppOpened() {
         try {
@@ -557,7 +588,11 @@ object ServiceLocator {
             )
         )
         // Reminders start automatically after onboarding; Profile has the opt-out.
+        // The picked time anchors the 5-hour meditation reminder chain.
         setReminderEnabled(true)
+        if (reminderHour in 0..23 && reminderMinute in 0..59) {
+            setReminderAnchor(reminderHour, reminderMinute)
+        }
         saveOnboardingCompleted(true)
         Unit
     }

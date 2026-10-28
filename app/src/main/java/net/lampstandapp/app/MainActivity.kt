@@ -43,6 +43,7 @@ import net.lampstandapp.app.journey.JourneyDashboardScreen
 import net.lampstandapp.app.journey.JourneyDashboardSession
 import net.lampstandapp.app.journey.JourneyListScreen
 import net.lampstandapp.app.journey.JourneyScreen
+import net.lampstandapp.app.journey.SessionCompleteDialog
 import net.lampstandapp.app.journey.SessionUnavailableScreen
 import net.lampstandapp.app.notification.ReminderScheduler
 import net.lampstandapp.app.paths.FandAPathScreen
@@ -479,6 +480,12 @@ fun LampStandApp(
                             var sessionAvailabilityMessage by rememberSaveable {
                                 mutableStateOf<String?>(null)
                             }
+                            // The day behind that message, so render can re-check the
+                            // Convex lock as home data refreshes (completion may land
+                            // on the backend before the local "done today" flag).
+                            var sessionAvailabilityNextDay by rememberSaveable {
+                                mutableStateOf(0)
+                            }
                             LaunchedEffect(googleSignedIn, onboardingDone) { formationVm.loadDiscovery() }
                             // Web parity: the dashboard's Convex useQuery is live and
                             // / remounts on every navigation, so Home always shows the
@@ -606,17 +613,21 @@ fun LampStandApp(
                             } else if (showTerms) {
                                 TermsOfServiceScreen(onBack = { showTerms = false })
                             } else if (showProfileEdit) {
+                                val savedAnchor = ServiceLocator.reminderAnchor()
                                 ProfileEditScreen(
                                     initialFirstName = profileFirstName,
                                     initialLastName = profileLastName,
                                     initialPhone = me?.phoneNumber ?: user.phone,
                                     initialReminderEnabled = ServiceLocator.reminderEnabled(),
+                                    initialReminderSlot = ServiceLocator.slotForStudyTime(me?.studyTimePreference),
+                                    initialReminderHour = savedAnchor.first,
+                                    initialReminderMinute = savedAnchor.second,
                                     onBack = { showProfileEdit = false },
                                     onItemSelected = {
                                         showProfileEdit = false
                                         selectedTab = it
                                     },
-                                    onSave = { first, last, phone, reminderEnabled ->
+                                    onSave = { first, last, phone, reminderEnabled, slot, anchorHour, anchorMinute ->
                                         scope.launch {
                                             // Real identity lives in Convex: users:me feeds
                                             // the Dashboard + Profile, so write there and
@@ -626,9 +637,10 @@ fun LampStandApp(
                                                 .onSuccess {
                                                     ServiceLocator.setReminderEnabled(reminderEnabled)
                                                     if (reminderEnabled) {
+                                                        // The edited time re-anchors the 5-hour chain.
+                                                        ServiceLocator.setReminderAnchor(anchorHour, anchorMinute)
                                                         ServiceLocator.updateNotificationPreferences(
-                                                            studyTimePreference = me?.studyTimePreference
-                                                                ?: "early_morning",
+                                                            studyTimePreference = ServiceLocator.studyTimeForSlot(slot),
                                                             contactPreference = me?.contactPreference ?: "email",
                                                             phone = phone,
                                                             timezone = me?.timezone
@@ -839,6 +851,7 @@ fun LampStandApp(
                                                     home?.currentDay?.toInt() ?: 1
                                                 )
                                             }
+                                            sessionAvailabilityNextDay = nextDay
                                             sessionAvailabilityMessage =
                                                 nextAvailabilityMessage(nextDay)
                                         } else {
@@ -852,6 +865,7 @@ fun LampStandApp(
                                                         // (double tap / stale screen): show the
                                                         // next availability instead of toasting
                                                         // the same day again.
+                                                        sessionAvailabilityNextDay = res.nextDay.toInt()
                                                         sessionAvailabilityMessage =
                                                             nextAvailabilityMessage(res.nextDay.toInt())
                                                         formationVm.loadHome()
@@ -998,15 +1012,31 @@ fun LampStandApp(
                                                 message = sessionError,
                                                 loading = sessionUi is net.lampstandapp.app.formation.SessionUi.Loading
                                             )
+                                            // Today's session is done and the next day is
+                                            // still locked: the dialog explains the wait and
+                                            // the reminder instead of the bare screen. It
+                                            // overlays the session the user was reading, so
+                                            // the unavailable branches stay unmounted.
+                                            val showCompleteDialog =
+                                                sessionAvailabilityMessage != null &&
+                                                    sessionAvailabilityNextDay > 0 &&
+                                                    ServiceLocator.todaySessionCompleted() &&
+                                                    !ServiceLocator.isPathComplete() &&
+                                                    net.lampstandapp.app.journey.isNextSessionLocked(
+                                                        nextDayNumber = sessionAvailabilityNextDay,
+                                                        totalDays = (overviewForSession?.totalDays
+                                                            ?: home?.totalDays ?: 7.0).toInt(),
+                                                        startedAtMillis = overviewForSession?.startedAt?.toLong()
+                                                    )
                                             when {
-                                                sessionAvailabilityMessage != null ->
+                                                sessionAvailabilityMessage != null && !showCompleteDialog ->
                                                     SessionUnavailableScreen(
                                                         message = sessionAvailabilityMessage!!,
                                                         onBack = backToJourney,
                                                         // Informational: no retry, only back.
                                                         onRetry = null
                                                     )
-                                                sessionLoadError != null -> SessionUnavailableScreen(
+                                                sessionLoadError != null && !showCompleteDialog -> SessionUnavailableScreen(
                                                     message = sessionLoadError,
                                                     onBack = backToJourney,
                                                     onRetry = effectiveSessionId?.let { id ->
@@ -1071,6 +1101,14 @@ fun LampStandApp(
                                                         )
                                                     }
                                                 }
+                                            }
+                                            if (showCompleteDialog) {
+                                                SessionCompleteDialog(
+                                                    onDismiss = backToJourney,
+                                                    // Only rendered by the dialog while
+                                                    // reminders are off.
+                                                    onSetReminder = { showProfileEdit = true }
+                                                )
                                             }
                                         }
                                     }

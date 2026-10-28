@@ -1,6 +1,7 @@
 package net.lampstandapp.app.journey
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Locale
@@ -44,6 +45,50 @@ class SessionAvailabilityTest {
             locale = Locale.US
         )
         assertTrue(message, message.startsWith("Next session available in 22h"))
+    }
+
+    @Test
+    fun lockedBeforeCalendarUnlock() {
+        assertTrue(
+            isNextSessionLocked(
+                nextDayNumber = 5,
+                totalDays = 7,
+                startedAtMillis = startedAt,
+                nowMillis = startedAt + 3 * day + 2 * 3_600_000L
+            )
+        )
+    }
+
+    @Test
+    fun unlockedAfterCalendarDayOrPastPath() {
+        assertFalse(
+            isNextSessionLocked(
+                nextDayNumber = 5,
+                totalDays = 7,
+                startedAtMillis = startedAt,
+                nowMillis = startedAt + 4 * day + 60_000L
+            )
+        )
+        assertFalse(
+            isNextSessionLocked(
+                nextDayNumber = 8,
+                totalDays = 7,
+                startedAtMillis = startedAt,
+                nowMillis = startedAt + 7 * day
+            )
+        )
+    }
+
+    @Test
+    fun missingStartDateIsNotLocked() {
+        assertFalse(
+            isNextSessionLocked(
+                nextDayNumber = 2,
+                totalDays = 7,
+                startedAtMillis = null,
+                nowMillis = startedAt
+            )
+        )
     }
 
     @Test

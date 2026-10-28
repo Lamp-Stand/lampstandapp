@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.font.FontWeight
 import net.lampstandapp.app.data.ServiceLocator
+import net.lampstandapp.app.profile.formatReminderTime
 
 /**
  * Shown instead of the "Session unavailable" screen when today's session is
@@ -19,6 +20,10 @@ fun SessionCompleteDialog(
     onSetReminder: (() -> Unit)? = null
 ) {
     val remindersOn = remember { ServiceLocator.reminderEnabled() }
+    val anchorLabel = remember {
+        val (hour, minute) = ServiceLocator.reminderAnchor()
+        formatReminderTime(hour, minute)
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
@@ -41,7 +46,7 @@ fun SessionCompleteDialog(
         text = {
             Text(
                 if (remindersOn) {
-                    "You've finished today's session. Your next session unlocks tomorrow — we'll nudge you from 6:45 AM."
+                    "You've finished today's session. Your next session unlocks tomorrow — meditation reminders will nudge you again from $anchorLabel."
                 } else {
                     "You've finished today's session. Your next session unlocks tomorrow. Turn on reminders in Profile so you don't miss it."
                 }

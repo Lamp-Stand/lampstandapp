@@ -7,6 +7,22 @@ import java.util.Locale
 private const val DAY_MS = 86_400_000L
 
 /**
+ * True while Convex still has [nextDayNumber] locked: the day is within the
+ * path and its calendar unlock time hasn't passed yet. Lets callers choose
+ * between the bare "unavailable" screen and the session-complete dialog.
+ */
+internal fun isNextSessionLocked(
+    nextDayNumber: Int,
+    totalDays: Int,
+    startedAtMillis: Long?,
+    nowMillis: Long = System.currentTimeMillis()
+): Boolean {
+    if (nextDayNumber > totalDays) return false
+    if (startedAtMillis == null || startedAtMillis <= 0L) return false
+    return startedAtMillis + (nextDayNumber - 1) * DAY_MS > nowMillis
+}
+
+/**
  * Convex unlocks day N at startedAt + (N - 1) days
  * (paths:getPathOverview / getSessionContent use floor(elapsed / 1 day)).
  */

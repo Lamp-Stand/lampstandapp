@@ -51,12 +51,27 @@ val DefaultReminderSlots = listOf(
     ReminderSlot("Before Bed", "A quiet close to the day", "☾")
 )
 
-fun defaultReminderTimes(): Map<Int, Pair<Int, Int>> = mapOf(
-    0 to (6 to 45),
-    1 to (12 to 30),
-    2 to (20 to 30),
-    3 to (22 to 15)
-)
+/** Hours between meditation reminder rings while a session is pending. */
+private const val CHAIN_STEP_HOURS = 5
+
+/**
+ * The reminder chain from an anchor time: anchor, +5h, +10h, +15h.
+ * The 6:45 AM default yields 6:45, 11:45, 16:45, 21:45.
+ */
+fun chainReminderTimes(anchorHour: Int, anchorMinute: Int): Map<Int, Pair<Int, Int>> =
+    (0 until 4).associate { step ->
+        val calendar = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, anchorHour)
+            set(java.util.Calendar.MINUTE, anchorMinute)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            add(java.util.Calendar.HOUR_OF_DAY, CHAIN_STEP_HOURS * step)
+        }
+        step to (calendar.get(java.util.Calendar.HOUR_OF_DAY) to calendar.get(java.util.Calendar.MINUTE))
+    }
+
+/** Default chain: the benchmark 6:45 AM anchor. */
+fun defaultReminderTimes(): Map<Int, Pair<Int, Int>> = chainReminderTimes(6, 45)
 
 fun formatReminderTime(hour: Int, minute: Int): String {
     val suffix = if (hour < 12) "AM" else "PM"
@@ -85,7 +100,7 @@ fun ReminderTimeCards(
 
     if (showHint) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(text = "◷", fontSize = 14.sp, color = Blue)
@@ -93,7 +108,8 @@ fun ReminderTimeCards(
                 text = "Tap the time to set your own",
                 fontSize = 13.sp,
                 fontStyle = FontStyle.Italic,
-                color = BodyGrey
+                color = BodyGrey,
+                modifier = Modifier.weight(1f)
             )
         }
         Spacer(modifier = Modifier.height(12.dp))

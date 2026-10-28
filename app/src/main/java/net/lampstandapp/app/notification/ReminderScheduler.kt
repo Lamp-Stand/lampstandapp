@@ -21,15 +21,19 @@ import net.lampstandapp.app.data.ServiceLocator
 import java.util.Calendar
 
 /**
- * Session reminders are on by default. During quiet-hours-aware slots
- * (6:45 AM, 11:45 AM, 4:45 PM, 9:45 PM) the app nudges the user to start or
- * finish today's session, stopping once the session is completed or the user
- * switches reminders off in Profile.
+ * Meditation session reminders are on by default. The chain starts at the
+ * user's chosen anchor time (default 6:45 AM) and rings every 5 hours after
+ * it (+5h, +10h, +15h) — only as a nudge to start or finish today's session,
+ * stopping once the session is completed or the user switches reminders off
+ * in Profile.
  */
 object ReminderScheduler {
     private const val CHANNEL_ID = "lampstand_daily_reminder"
     private const val NOTIFICATION_ID = 4101
     private const val ALARM_REQUEST = 4102
+
+    /** Hours between meditation reminder rings while a session is pending. */
+    private const val CHAIN_STEP_HOURS = 5
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -48,11 +52,24 @@ object ReminderScheduler {
     }
 
     /**
-     * Quiet hours run 6:45 AM to 10:00 PM. Inside that window a nudge fires
-     * every 5 hours, and the one-shot alarm re-arms itself after each delivery
+     * The reminder chain: anchor, +5h, +10h, +15h — e.g. with the 6:45 AM
+     * default that is 6:45, 11:45, 16:45, 21:45. Editing the anchor in Profile
+     * shifts the whole chain. A one-shot alarm re-arms after each delivery
      * until today's session is completed or the user switches reminders off.
      */
-    private val reminderSlots = listOf(6 to 45, 11 to 45, 16 to 45, 21 to 45)
+    internal fun chainSlots(
+        anchorHour: Int,
+        anchorMinute: Int
+    ): List<Pair<Int, Int>> = (0 until 4).map { step ->
+        val calendar = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, anchorHour)
+            set(Calendar.MINUTE, anchorMinute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.HOUR_OF_DAY, CHAIN_STEP_HOURS * step)
+        }
+        calendar.get(Calendar.HOUR_OF_DAY) to calendar.get(Calendar.MINUTE)
+    }
 
     /** Suppress a re-arm of the slot that just fired if the OS delivered it early. */
     private const val REARM_GUARD_MS = 10 * 60 * 1000L
@@ -106,9 +123,11 @@ object ReminderScheduler {
         skipToday: Boolean = false
     ): Long {
         val cutoff = maxOf(now, ServiceLocator.lastReminderAt() + REARM_GUARD_MS)
+        val (anchorHour, anchorMinute) = ServiceLocator.reminderAnchor()
+        val slots = chainSlots(anchorHour, anchorMinute)
         val calendar = Calendar.getInstance()
         if (!skipToday) {
-            for ((hour, minute) in reminderSlots) {
+            for ((hour, minute) in slots) {
                 calendar.timeInMillis = now
                 calendar.set(Calendar.HOUR_OF_DAY, hour)
                 calendar.set(Calendar.MINUTE, minute)
@@ -119,8 +138,8 @@ object ReminderScheduler {
         }
         calendar.timeInMillis = now
         calendar.add(Calendar.DAY_OF_MONTH, 1)
-        calendar.set(Calendar.HOUR_OF_DAY, reminderSlots.first().first)
-        calendar.set(Calendar.MINUTE, reminderSlots.first().second)
+        calendar.set(Calendar.HOUR_OF_DAY, slots.first().first)
+        calendar.set(Calendar.MINUTE, slots.first().second)
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
         return calendar.timeInMillis

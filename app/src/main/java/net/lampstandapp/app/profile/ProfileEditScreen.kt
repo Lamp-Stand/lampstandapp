@@ -23,6 +23,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -30,7 +32,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -96,16 +100,25 @@ private fun EditTextField(
 
 /**
  * Profile edit screen (design/profileeditscreen.png).
+ *
+ * The meditation reminder is a 5-hour chain anchored on the first slot's
+ * time (default 6:45 AM → 6:45, 11:45, 16:45, 21:45). Tapping any card's
+ * time chip shifts the whole chain to start from the picked time; it only
+ * rings while today's session is still unfinished.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileEditScreen(
     initialFirstName: String = "John",
     initialLastName: String = "Doe",
     initialPhone: String = "+234 801 0000 000",
     initialReminderEnabled: Boolean = true,
+    initialReminderSlot: Int = 0,
+    initialReminderHour: Int = -1,
+    initialReminderMinute: Int = -1,
     onItemSelected: (Int) -> Unit = {},
     onBack: () -> Unit = {},
-    onSave: (firstName: String, lastName: String, phone: String, reminderEnabled: Boolean) -> Unit = { _, _, _, _ -> }
+    onSave: (firstName: String, lastName: String, phone: String, reminderEnabled: Boolean, slot: Int, anchorHour: Int, anchorMinute: Int) -> Unit = { _, _, _, _, _, _, _ -> }
 ) {
     var firstName by remember { mutableStateOf(initialFirstName) }
     var lastName by remember { mutableStateOf(initialLastName) }
@@ -114,6 +127,21 @@ fun ProfileEditScreen(
     var country by remember(initialPhone) { mutableStateOf(initialSplit.first) }
     var phone by remember(initialPhone) { mutableStateOf(initialSplit.second) }
     var reminderEnabled by remember { mutableStateOf(initialReminderEnabled) }
+    var selectedSlot by remember { mutableStateOf(initialReminderSlot) }
+    // The chain is anchored on one clock time; every card shows a step of it.
+    // A saved anchor overrides the 6:45 AM benchmark default.
+    var anchor by remember {
+        mutableStateOf(
+            if (initialReminderHour in 0..23 && initialReminderMinute in 0..59) {
+                initialReminderHour to initialReminderMinute
+            } else {
+                6 to 45
+            }
+        )
+    }
+    var times by remember(anchor) { mutableStateOf(chainReminderTimes(anchor.first, anchor.second)) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Box(
         modifier = Modifier
@@ -220,16 +248,39 @@ fun ProfileEditScreen(
             if (reminderEnabled) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Every 5 hours from 6:45 AM to 10:00 PM until today's session is completed.",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Normal,
-                    lineHeight = 18.sp,
+                    text = "Meditation time",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 22.sp,
                     color = BodyGrey
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                ReminderTimeCards(
+                    times = times,
+                    selectedSlot = selectedSlot,
+                    onSlotSelect = { selectedSlot = it },
+                    onTimeChange = { _, hour, minute ->
+                        // Any edited time re-anchors the whole 5-hour chain.
+                        anchor = hour to minute
+                    },
+                    onTimePicked = { title, label ->
+                        scope.launch { snackbar.showSnackbar("$title set for $label") }
+                    }
                 )
             }
             Spacer(modifier = Modifier.height(32.dp))
             Button(
-                onClick = { onSave(firstName, lastName, formatFullPhone(country, phone), reminderEnabled) },
+                onClick = {
+                    onSave(
+                        firstName,
+                        lastName,
+                        formatFullPhone(country, phone),
+                        reminderEnabled,
+                        selectedSlot,
+                        anchor.first,
+                        anchor.second
+                    )
+                },
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5C5C5C)),
                 modifier = Modifier.fillMaxWidth().height(52.dp)
@@ -246,6 +297,12 @@ fun ProfileEditScreen(
         Box(modifier = Modifier.align(Alignment.BottomCenter)) {
             BottomNavBar(selectedIndex = 3, onItemSelected = onItemSelected)
         }
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 20.dp, end = 20.dp, bottom = 96.dp)
+        )
     }
 }
 
