@@ -2,10 +2,11 @@
 
 ## Download
 
-- [Download LampStand 1.0 APK](https://github.com/xynydomega/lampstandapp/releases/latest/download/LampStand-1.0.apk)
+- [Download LampStand 1.0.1 APK](https://github.com/xynydomega/lampstandapp/releases/latest/download/LampStand-1.0.1.apk)
+- [Stable latest link (same URL as before)](https://github.com/xynydomega/lampstandapp/releases/latest/download/LampStand-1.0.apk)
+- [Release page](https://github.com/xynydomega/lampstandapp/releases/tag/v1.0.1)
 - [SHA-256 checksum](dist/SHA256.txt)
 - Local file: `C:\Users\XYNYDOMEGA\AndroidStudioProjects\LampStand\dist\LampStand-1.0.apk`
-- Public direct link: https://github.com/xynydomega/lampstandapp/releases/latest/download/LampStand-1.0.apk
 
 ## APK details
 
@@ -13,17 +14,17 @@
 |---|---|
 | App name | LampStand |
 | Package ID | `net.lampstandapp.app` |
-| Version | `1.0` |
-| Version code | `1` |
+| Version | `1.0.1` |
+| Version code | `2` |
 | Build type | Release |
 | Minimum Android | Android 7.0 (API 24) |
 | Target Android | API 37 |
-| File size | 8.92 MB |
-| Build date | 2026-10-21 |
+| File size | 9,355,815 bytes (8.92 MB) |
+| Build date | 2026-10-25 |
 | Signing | Release-signed, verified |
 | Signer | `CN=LampStand, OU=Mobile, O=LampStand, L=Lagos, ST=Lagos, C=NG` |
 | Signer certificate SHA-256 | `5bf2df206106215a981e486c51abd2bd95116af20b75f5627ef758ba1795edc9` |
-| APK SHA-256 | `20B57930B6A9046F49F6CEA86924CF8172648E11FC3E5833E3092CC47D9AAE6D` |
+| APK SHA-256 | `87E8609E7B3CF3AEABBBC68CFB98537BF77170FA256040FC4743704339CFF3E6` |
 | Backend | Convex `exciting-dodo-656` |
 
 ## Install
@@ -53,22 +54,20 @@ Back these up securely. Losing them prevents publishing future updates under the
 
 ## What changed in this build
 
-- Fixed the Home button so it no longer opens a locked next-day session from `home.sessionId`.
-- If the next session is locked, it now opens the path schedule with the lock state instead.
-- Replaced the misleading `Context coming soon.` / `Insight coming soon.` fallback with a clear “Session unavailable” screen.
-- Made Convex errors readable instead of raw JSON.
-- Rebuilt debug and release APKs; lint passes.
+- Fixed the session error shown after completing or re-reading a session.
+- Session content now loads only while the session screen is open, so the next locked day can no longer overwrite the screen during completion.
+- Re-reading a completed day and tapping **Complete Session** now shows when the next session becomes available, with only **Back to Journey** (no retry).
+- Stale session responses can no longer replace the session being read.
+- Convex request errors are shown as readable messages instead of raw request IDs.
 
 ## Is this change in the APK link?
 
-**Local link: yes.** The file at `dist/LampStand-1.0.apk` was replaced with the fixed build, so the link above now serves the new APK.
+**Yes.** The latest release is `v1.0.1` (`versionCode 2`), and both links above serve the new APK.
 
-**Website/public link: no, not automatically.** If the PM already uploaded the old APK to the website, that hosted copy is still the old one. The PM must re-upload the new file.
+- Current SHA-256: `87E8609E7B3CF3AEABBBC68CFB98537BF77170FA256040FC4743704339CFF3E6`
+- Previous SHA-256: `20B57930B6A9046F49F6CEA86924CF8172648E11FC3E5833E3092CC47D9AAE6D`
 
-- New SHA-256: `20B57930B6A9046F49F6CEA86924CF8172648E11FC3E5833E3092CC47D9AAE6D`
-- Old SHA-256: `70F66EA8D15BCB438C4D6B130FC73786CC7CDFF2047D7E3DAB008C2900FF2375`
-
-If the website file still has the old hash, it is the old build. The backend/web side was not changed, only the Android app.
+`versionCode` is now `2`, so this build installs as an update over the older `1.0` build without uninstalling it.
 
 ## Notes
 
