@@ -78,7 +78,7 @@ fun TopBar(
             modifier = Modifier.clickable(onClick = onNotificationClick)
         ) {
             Icon(
-                painter = painterResource(id = R.drawable.ic_notification),
+                painter = painterResource(id = R.drawable.ic_bell),
                 contentDescription = "Notifications",
                 tint = Color(0xFF335E78),
                 modifier = Modifier.size(24.dp)

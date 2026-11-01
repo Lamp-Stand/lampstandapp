@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity() {
             val granted = grantResults.firstOrNull() ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
             if (granted && ServiceLocator.reminderEnabled()) {
-                ReminderScheduler.requestExactAlarmAccess(this)
+                // Reminder synced via WorkManager
             }
         }
     }

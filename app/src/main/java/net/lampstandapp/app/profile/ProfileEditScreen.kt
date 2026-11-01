@@ -130,18 +130,41 @@ fun ProfileEditScreen(
     var selectedSlot by remember { mutableStateOf(initialReminderSlot) }
     // The chain is anchored on one clock time; every card shows a step of it.
     // A saved anchor overrides the 6:45 AM benchmark default.
-    var anchor by remember {
+    var times by remember {
         mutableStateOf(
-            if (initialReminderHour in 0..23 && initialReminderMinute in 0..59) {
-                initialReminderHour to initialReminderMinute
-            } else {
-                6 to 45
+            defaultReminderTimes().toMutableMap().apply {
+                if (initialReminderHour in 0..23 && initialReminderMinute in 0..59) {
+                    this[0] = initialReminderHour to initialReminderMinute
+                }
             }
         )
     }
-    var times by remember(anchor) { mutableStateOf(chainReminderTimes(anchor.first, anchor.second)) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    var savedFirstName by remember { mutableStateOf(initialFirstName) }
+    var savedLastName by remember { mutableStateOf(initialLastName) }
+    var savedPhone by remember { mutableStateOf(initialPhone) }
+    var savedReminderEnabled by remember { mutableStateOf(initialReminderEnabled) }
+    var savedSelectedSlot by remember { mutableStateOf(initialReminderSlot) }
+    val initialTimes = remember {
+        defaultReminderTimes().toMutableMap().apply {
+            if (initialReminderHour in 0..23 && initialReminderMinute in 0..59) {
+                this[0] = initialReminderHour to initialReminderMinute
+            }
+        }
+    }
+    var savedTimes by remember { mutableStateOf(initialTimes) }
+
+    val currentFullPhone = formatFullPhone(country, phone)
+    val hasChanges = firstName != savedFirstName ||
+        lastName != savedLastName ||
+        currentFullPhone != savedPhone ||
+        reminderEnabled != savedReminderEnabled ||
+        selectedSlot != savedSelectedSlot ||
+        times != savedTimes
+
+    val buttonColor = if (hasChanges) Blue else Color(0xFF5C5C5C)
 
     Box(
         modifier = Modifier
@@ -259,30 +282,44 @@ fun ProfileEditScreen(
                     times = times,
                     selectedSlot = selectedSlot,
                     onSlotSelect = { selectedSlot = it },
-                    onTimeChange = { _, hour, minute ->
-                        // Any edited time re-anchors the whole 5-hour chain.
-                        anchor = hour to minute
+                    onTimeChange = { slotIndex, hour, minute ->
+                        if (isTimeValidForSlot(slotIndex, hour, minute)) {
+                            times = times.toMutableMap().apply { this[slotIndex] = hour to minute }
+                            scope.launch {
+                                snackbar.showSnackbar("${DefaultReminderSlots[slotIndex].title} set for ${formatReminderTime(hour, minute)}")
+                            }
+                        } else {
+                            val range = slotTimeRangeName(slotIndex)
+                            scope.launch {
+                                snackbar.showSnackbar("Invalid time. ${DefaultReminderSlots[slotIndex].title} must be between $range")
+                            }
+                        }
                     },
-                    onTimePicked = { title, label ->
-                        scope.launch { snackbar.showSnackbar("$title set for $label") }
-                    }
+                    onTimePicked = { _, _ -> }
                 )
             }
             Spacer(modifier = Modifier.height(32.dp))
             Button(
                 onClick = {
+                    savedFirstName = firstName
+                    savedLastName = lastName
+                    savedPhone = currentFullPhone
+                    savedReminderEnabled = reminderEnabled
+                    savedSelectedSlot = selectedSlot
+                    savedTimes = times
+                    val activeAnchor = times[0] ?: (6 to 45)
                     onSave(
                         firstName,
                         lastName,
-                        formatFullPhone(country, phone),
+                        currentFullPhone,
                         reminderEnabled,
                         selectedSlot,
-                        anchor.first,
-                        anchor.second
+                        activeAnchor.first,
+                        activeAnchor.second
                     )
                 },
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5C5C5C)),
+                colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
                 modifier = Modifier.fillMaxWidth().height(52.dp)
             ) {
                 Text(

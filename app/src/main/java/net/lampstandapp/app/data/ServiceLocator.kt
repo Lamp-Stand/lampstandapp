@@ -447,6 +447,30 @@ object ServiceLocator {
         } catch (_: Exception) { /* best-effort */ }
     }
 
+    fun getReminderSlotsTimes(): Map<Int, Pair<Int, Int>> {
+        val defaults = mapOf(
+            0 to (6 to 45),
+            1 to (12 to 30),
+            2 to (18 to 0),
+            3 to (21 to 30)
+        )
+        return (0 until 4).associateWith { index ->
+            val h = cachePrefs?.getInt("KEY_SLOT_${index}_HOUR", defaults[index]!!.first) ?: defaults[index]!!.first
+            val m = cachePrefs?.getInt("KEY_SLOT_${index}_MINUTE", defaults[index]!!.second) ?: defaults[index]!!.second
+            h to m
+        }
+    }
+
+    fun setReminderSlotTime(index: Int, hour: Int, minute: Int) {
+        if (index !in 0..3 || hour !in 0..23 || minute !in 0..59) return
+        try {
+            cachePrefs?.edit()
+                ?.putInt("KEY_SLOT_${index}_HOUR", hour)
+                ?.putInt("KEY_SLOT_${index}_MINUTE", minute)
+                ?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+    }
+
     /** Launching the app (including starting a session) marks the day as opened. */
     fun markAppOpened() {
         try {

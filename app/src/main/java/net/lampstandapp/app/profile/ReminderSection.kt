@@ -54,24 +54,33 @@ val DefaultReminderSlots = listOf(
 /** Hours between meditation reminder rings while a session is pending. */
 private const val CHAIN_STEP_HOURS = 5
 
-/**
- * The reminder chain from an anchor time: anchor, +5h, +10h, +15h.
- * The 6:45 AM default yields 6:45, 11:45, 16:45, 21:45.
- */
-fun chainReminderTimes(anchorHour: Int, anchorMinute: Int): Map<Int, Pair<Int, Int>> =
-    (0 until 4).associate { step ->
-        val calendar = java.util.Calendar.getInstance().apply {
-            set(java.util.Calendar.HOUR_OF_DAY, anchorHour)
-            set(java.util.Calendar.MINUTE, anchorMinute)
-            set(java.util.Calendar.SECOND, 0)
-            set(java.util.Calendar.MILLISECOND, 0)
-            add(java.util.Calendar.HOUR_OF_DAY, CHAIN_STEP_HOURS * step)
-        }
-        step to (calendar.get(java.util.Calendar.HOUR_OF_DAY) to calendar.get(java.util.Calendar.MINUTE))
+fun isTimeValidForSlot(slotIndex: Int, hour: Int, minute: Int): Boolean {
+    return when (slotIndex) {
+        0 -> hour in 4..11
+        1 -> hour in 12..16
+        2 -> hour in 17..20
+        3 -> hour in 21..23 || hour in 0..3
+        else -> true
     }
+}
 
-/** Default chain: the benchmark 6:45 AM anchor. */
-fun defaultReminderTimes(): Map<Int, Pair<Int, Int>> = chainReminderTimes(6, 45)
+fun slotTimeRangeName(slotIndex: Int): String {
+    return when (slotIndex) {
+        0 -> "4:00 AM – 11:59 AM"
+        1 -> "12:00 PM – 4:59 PM"
+        2 -> "5:00 PM – 8:59 PM"
+        3 -> "9:00 PM – 3:59 AM"
+        else -> ""
+    }
+}
+
+/** Default independent reminder times for each slot. */
+fun defaultReminderTimes(): Map<Int, Pair<Int, Int>> = mapOf(
+    0 to (6 to 45),
+    1 to (12 to 30),
+    2 to (18 to 0),
+    3 to (21 to 30)
+)
 
 fun formatReminderTime(hour: Int, minute: Int): String {
     val suffix = if (hour < 12) "AM" else "PM"
