@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -21,17 +22,19 @@ import net.lampstandapp.app.data.ServiceLocator
 import java.util.Calendar
 
 /**
- * Reliable background meditation reminder scheduler powered by AlarmManager (exact alarms).
- * Runs 5-hour interval notification chains to nudge users to start or finish
- * today's session, stopping automatically once completed or when path is finished.
+ * Meditation session reminders are on by default. Four INDEPENDENT daily
+ * alarms — Morning, Noon, Evening, Night — each locked to its own window
+ * inside 5:00 AM – 11:00 PM (ReminderPreferences.WINDOWS_MINUTES). They
+ * ring only as a nudge to start or finish today's session, stopping once
+ * the session is completed or the user switches reminders off in Profile.
  */
 object ReminderScheduler {
     private const val CHANNEL_ID = "lampstand_daily_reminder"
     private const val NOTIFICATION_ID = 4101
     private const val ALARM_REQUEST = 4102
 
-    /** Hours between meditation reminder rings while a session is pending. */
-    private const val CHAIN_STEP_HOURS = 5
+    /** Suppress a re-arm of the slot that just fired if the OS delivered it early. */
+    private const val REARM_GUARD_MS = 10 * 60 * 1000L
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -49,34 +52,24 @@ object ReminderScheduler {
         }
     }
 
-    internal fun chainSlots(
-        anchorHour: Int,
-        anchorMinute: Int
-    ): List<Pair<Int, Int>> = (0 until 4).map { step ->
-        val calendar = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, anchorHour)
-            set(Calendar.MINUTE, anchorMinute)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            add(Calendar.HOUR_OF_DAY, CHAIN_STEP_HOURS * step)
-        }
-        calendar.get(Calendar.HOUR_OF_DAY) to calendar.get(Calendar.MINUTE)
-    }
-
-    /** Suppress a re-arm of the slot that just fired if the OS delivered it early. */
-    private const val REARM_GUARD_MS = 10 * 60 * 1000L
+    /**
+     * The reminder schedule: four independent daily alarms (Morning, Noon,
+     * Evening, Night) inside 5:00 AM – 11:00 PM — until today's session is
+     * completed or the user switches reminders off in Profile.
+     */
 
     fun sync(context: Context) {
         ServiceLocator.init(context)
         val active = ServiceLocator.hasConvexSession() &&
             ServiceLocator.reminderEnabled() &&
-            !ServiceLocator.isPathComplete() &&
-            !ServiceLocator.todaySessionCompleted()
+            !ServiceLocator.isPathComplete()
 
         if (!active) {
             cancel(context)
             return
         }
+        // Completed today? Skip the rest of today but keep tomorrow's first
+        // alarm alive so the user is nudged again on the next day.
         scheduleNext(context, skipToday = ServiceLocator.todaySessionCompleted())
     }
 
@@ -84,6 +77,11 @@ object ReminderScheduler {
         ensureChannel(context)
         val alarm = context.getSystemService(AlarmManager::class.java) ?: return
         val triggerAt = nextTriggerAt(skipToday = skipToday)
+
+        Log.d(
+            "ReminderScheduler",
+            "Scheduling next reminder: ${java.util.Date(triggerAt)}"
+        )
         val pending = PendingIntent.getBroadcast(
             context,
             ALARM_REQUEST,
@@ -113,38 +111,16 @@ object ReminderScheduler {
         now: Long = System.currentTimeMillis(),
         skipToday: Boolean = false
     ): Long {
-        val cutoff = maxOf(now, ServiceLocator.lastReminderAt() + REARM_GUARD_MS)
-        val slotsMap = ServiceLocator.getReminderSlotsTimes()
-        val calendar = Calendar.getInstance()
-
-        val todayTriggers = mutableListOf<Long>()
-        if (!skipToday) {
-            for ((_, time) in slotsMap) {
-                calendar.timeInMillis = now
-                calendar.set(Calendar.HOUR_OF_DAY, time.first)
-                calendar.set(Calendar.MINUTE, time.second)
-                calendar.set(Calendar.SECOND, 0)
-                calendar.set(Calendar.MILLISECOND, 0)
-                if (calendar.timeInMillis > cutoff) {
-                    todayTriggers.add(calendar.timeInMillis)
-                }
-            }
-            if (todayTriggers.isNotEmpty()) {
-                return todayTriggers.minOrNull()!!
-            }
-        }
-
-        val tomorrowTriggers = mutableListOf<Long>()
-        for ((_, time) in slotsMap) {
-            calendar.timeInMillis = now
-            calendar.add(Calendar.DAY_OF_MONTH, 1)
-            calendar.set(Calendar.HOUR_OF_DAY, time.first)
-            calendar.set(Calendar.MINUTE, time.second)
-            calendar.set(Calendar.SECOND, 0)
-            calendar.set(Calendar.MILLISECOND, 0)
-            tomorrowTriggers.add(calendar.timeInMillis)
-        }
-        return tomorrowTriggers.minOrNull() ?: (now + 24 * 60 * 60 * 1000L)
+        // If the OS delivered the last alarm early, hold the next re-arm
+        // until at least 10 minutes after it (their REARM_GUARD_MS idea).
+        val last = ServiceLocator.lastReminderAt()
+        val cutoff = if (last != null) maxOf(now, last + REARM_GUARD_MS) else now
+        val phases = ServiceLocator.reminderPreferences().allPeriodTimes()
+        return ReminderCalculator.calculateNextPhaseTrigger(
+            now = cutoff,
+            phases = phases,
+            skipToday = skipToday
+        )
     }
 
     fun canScheduleExactAlarms(context: Context): Boolean {
@@ -186,6 +162,11 @@ object ReminderScheduler {
     }
 
     fun showNotification(context: Context) {
+        Log.d(
+            "ReminderReceiver",
+            "Attempting to show notification"
+        )
+
         ServiceLocator.init(context)
         if (Build.VERSION.SDK_INT >= 33) {
             val granted = ContextCompat.checkSelfPermission(
@@ -224,8 +205,10 @@ object ReminderScheduler {
             .build()
 
         try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
-            ServiceLocator.recordReminderShown()
+            val notificationId = Calendar.getInstance().let {
+                NOTIFICATION_ID + it.get(Calendar.HOUR_OF_DAY)
+            }
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
         } catch (_: SecurityException) {
             // best-effort
         }
@@ -235,6 +218,12 @@ object ReminderScheduler {
 /** Fires the daily notification and re-arms after reboot/timezone changes. */
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
+
+        Log.d(
+            "ReminderReceiver",
+            "Alarm received at: ${java.util.Date()}"
+        )
+
         ServiceLocator.init(context)
         val action = intent?.action
         if (action == Intent.ACTION_BOOT_COMPLETED ||
@@ -246,7 +235,14 @@ class ReminderReceiver : BroadcastReceiver() {
             ReminderScheduler.sync(context)
             return
         }
+        // Normal alarm delivery.
+        // Record that the alarm fired before showing the notification.
+        ServiceLocator.recordReminderDelivered()
+
+        // Display the current notification first.
         ReminderScheduler.showNotification(context)
+
+        // Then schedule the next reminder.
         ReminderScheduler.sync(context)
     }
 }

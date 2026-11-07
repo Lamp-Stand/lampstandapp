@@ -1,0 +1,47 @@
+LampStand "Restart Journey" — endpoint needed from backend dev
+
+Deployment: exciting-dodo-656 (https://exciting-dodo-656.convex.cloud)
+
+WHAT THE ANDROID APP HAS (done, UI only):
+- Journey Dashboard now has a "Restart Journey" button below the sessions list.
+- Tap -> confirmation dialog -> on confirm, button flips to "Revert Restart".
+- Revert stays available until the user completes a new session, then it flips back to "Restart Journey".
+- IMPORTANT: this is UI state + overview/home reload only. NOTHING changes server-side yet, because no restart mutation exists that the app can call.
+
+WHAT WE NEED FROM YOU:
+
+1) Answer first: does a restart/reset mutation already exist on this deployment?
+We could not verify from outside — error responses are masked ("Server Error" for
+everything) and we have no admin/deploy key. Please check the dashboard Functions
+tab or your code.
+
+2) If it does NOT exist, please add one:
+
+   File: convex/paths.ts
+   Mutation: restartPath
+   Args: { pathId: v.id("paths") }
+   Auth: required (getAuthUserId), same pattern as startPath
+   Behavior:
+     - Load the user's userPaths record for this pathId (by_userId_pathId index)
+     - If none -> throw PATH_NOT_FOUND
+     - Reset it:
+         currentDay: 1,
+         completedDays: [],
+         status: "active",
+         startedAt: Date.now()
+     - Delete (or deactivate) this userPath's session completion records so
+       getSessionContent reports "available" again for day 1.
+       (Check how completeSession marks progress — mirror that in reverse.)
+     - Return { userPathId, currentDay: 1, restarted: true }
+   Notes:
+     - Do NOT touch other users (unlike users:resetAllUsersOnboardingAndSessions).
+     - Keep it idempotent: restarting an already-restarted path is a no-op reset.
+     - If a path is completed (status: "completed"), restart should re-activate it.
+
+3) When it's deployed, tell us the exact mutation name + args and the Android side
+   gets wired in one small change (FormationRepository + onRestartConfirm callback).
+
+ANDROID CONTACT POINTS (for reference):
+- Call site: MainActivity.kt onRestartConfirm / onRevertClick (journeyRestarted flag)
+- Repository: data/ConvexFormationRepository.kt (patterns: startPath, completeSession)
+- Convex config: data/remote/ConvexConfig.kt -> https://exciting-dodo-656.convex.cloud

@@ -22,11 +22,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -241,7 +246,10 @@ fun JourneyDashboardScreen(
     selectedIndex: Int = 1,
     isLoading: Boolean = false,
     loadError: String? = null,
-    onRetry: (() -> Unit)? = null
+    onRetry: (() -> Unit)? = null,
+    onRestartConfirm: () -> Unit = {},
+    onRevertClick: () -> Unit = {},
+    canRevert: Boolean = false
 ) {
     val resolvedActiveDay = currentDay
         ?: sessions.firstOrNull { it.status == "available" }?.dayNumber
@@ -250,6 +258,7 @@ fun JourneyDashboardScreen(
     val scheduleDays = rememberScheduleDays(sessions = sessions, activeDay = resolvedActiveDay)
     val overviewBody = overviewText
         ?: "This $totalDays-day path is designed to help you rely on God\u2019s steady presence and character when life feels unclear or unpredictable."
+    var showRestartConfirm by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -521,7 +530,75 @@ fun JourneyDashboardScreen(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Restart / Revert button below the sessions list.
+                // "Restart" opens a confirmation dialog; after confirming, the button
+                // becomes "Revert" until a new session is completed (parent clears
+                // canRevert), at which point it shows "Restart" again.
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .width(334.dp)
+                        .heightIn(min = 44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (canRevert) Color(0xFFE8F0F4) else Color(0xFFFDECEC))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {
+                                if (canRevert) {
+                                    onRevertClick()
+                                } else {
+                                    showRestartConfirm = true
+                                }
+                            }
+                        )
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = if (canRevert) "Revert Restart" else "Restart Journey",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 20.sp,
+                        color = if (canRevert) Primary else Color(0xFFC0392B),
+                        maxLines = 1,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
+        }
+
+        // Confirmation dialog for restarting the journey.
+        if (showRestartConfirm) {
+            AlertDialog(
+                onDismissRequest = { showRestartConfirm = false },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showRestartConfirm = false
+                            onRestartConfirm()
+                        }
+                    ) {
+                        Text("Restart", fontWeight = FontWeight.SemiBold, color = Color(0xFFC0392B))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRestartConfirm = false }) {
+                        Text("Cancel", fontWeight = FontWeight.SemiBold, color = BodyText)
+                    }
+                },
+                title = {
+                    Text("Restart Journey?", fontWeight = FontWeight.SemiBold, color = PrimaryInk)
+                },
+                text = {
+                    Text(
+                        "This will reset your progress on this path. You can revert this action until you complete a new session.",
+                        color = BodyText
+                    )
+                }
+            )
         }
 
         BottomNavBar(

@@ -72,6 +72,8 @@ data class OnboardingData(
     /** Local-only clock time for the mobile notification; backend still gets only the slot above. */
     val reminderHour: Int,
     val reminderMinute: Int,
+    /** All four independent period times (index = period 0..3), window-validated. */
+    val reminderTimes: List<Pair<Int, Int>> = emptyList(),
     val contactPreference: String = "email",
     val timezone: String
 )
@@ -103,9 +105,9 @@ private val Seasons = listOf(
     SeasonOption("none", "None of these feel quite right", comingSoon = true)
 )
 private val Times = listOf(
-    TimeOption("early_morning", "Early Morning", "Before the day begins", "5:00 – 9:00 AM", "◑", 6, 45),
-    TimeOption("afternoon", "Afternoon", "A midday pause", "12:00 – 2:00 PM", "☀", 12, 30),
-    TimeOption("evening", "Evening", "When things slow down", "5:00 – 8:00 PM", "◐", 18, 30),
+    TimeOption("early_morning", "Early Morning", "Before the day begins", "5:00 – 11:59 AM", "◑", 6, 45),
+    TimeOption("afternoon", "Afternoon", "A midday pause", "12:00 – 4:59 PM", "☀", 12, 30),
+    TimeOption("evening", "Evening", "When things slow down", "5:00 – 8:59 PM", "◐", 18, 30),
     TimeOption("before_bed", "Before Bed", "A quiet close to the day", "9:00 – 11:00 PM", "☾", 22, 15)
 )
 
@@ -200,6 +202,7 @@ fun OnboardingProfileScreen(
         mutableStateOf(Times.associate { it.value to (it.defaultHour to it.defaultMinute) })
     }
     var pickerSlot by remember { mutableStateOf<String?>(null) }
+    var pickerError by remember { mutableStateOf<String?>(null) }
 
     val canFinish = firstName.isNotBlank() && lastName.isNotBlank() &&
         season != null && time.isNotBlank() && !isLoading
@@ -368,6 +371,10 @@ fun OnboardingProfileScreen(
                     onClick = {
                         val tz = try { java.util.TimeZone.getDefault().id ?: "UTC" } catch (_: Exception) { "UTC" }
                         val (rh, rm) = times[time] ?: (6 to 45)
+                        // All four independent period times, index = period 0..3.
+                        val allTimes = Times.map { t ->
+                            times[t.value] ?: (t.defaultHour to t.defaultMinute)
+                        }
                         onFinish(
                             OnboardingData(
                                 firstName = firstName.trim(),
@@ -377,6 +384,7 @@ fun OnboardingProfileScreen(
                                 studyTimePreference = time,
                                 reminderHour = rh,
                                 reminderMinute = rm,
+                                reminderTimes = allTimes,
                                 contactPreference = "email",
                                 timezone = tz
                             )
@@ -393,27 +401,53 @@ fun OnboardingProfileScreen(
         // Time picker dialog shared across the four slots.
         pickerSlot?.let { slotValue ->
             val slot = Times.first { it.value == slotValue }
+            val period = Times.indexOfFirst { it.value == slotValue }
             val (ih, im) = times[slotValue] ?: (slot.defaultHour to slot.defaultMinute)
             val pickerState = rememberTimePickerState(initialHour = ih, initialMinute = im, is24Hour = false)
             AlertDialog(
-                onDismissRequest = { pickerSlot = null },
+                onDismissRequest = {
+                    pickerSlot = null
+                    pickerError = null
+                },
                 title = { Text("${slot.label} reminder", fontWeight = FontWeight.SemiBold, color = Color.Black) },
                 text = {
                     Column {
-                        Text("Usual range: ${slot.range}", fontSize = 13.sp, color = BodyGrey)
+                        Text(
+                            "Allowed range: ${net.lampstandapp.app.notification.ReminderPreferences.windowLabel(period)}",
+                            fontSize = 13.sp,
+                            color = BodyGrey
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         TimePicker(state = pickerState)
+                        if (pickerError != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(pickerError ?: "", fontSize = 13.sp, color = Color(0xFFE5484D))
+                        }
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        times = times.toMutableMap().apply { put(slotValue, pickerState.hour to pickerState.minute) }
-                        time = slotValue
-                        pickerSlot = null
+                        val h = pickerState.hour
+                        val m = pickerState.minute
+                        if (net.lampstandapp.app.notification.ReminderPreferences
+                                .isValidTime(period, h, m)
+                        ) {
+                            times = times.toMutableMap().apply { put(slotValue, h to m) }
+                            time = slotValue
+                            pickerSlot = null
+                            pickerError = null
+                        } else {
+                            pickerError = "${slot.label} must be between " +
+                                net.lampstandapp.app.notification.ReminderPreferences
+                                    .windowLabel(period)
+                        }
                     }) { Text("Set time", color = LampBlue) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { pickerSlot = null }) { Text("Cancel", color = BodyGrey) }
+                    TextButton(onClick = {
+                        pickerSlot = null
+                        pickerError = null
+                    }) { Text("Cancel", color = BodyGrey) }
                 }
             )
         }

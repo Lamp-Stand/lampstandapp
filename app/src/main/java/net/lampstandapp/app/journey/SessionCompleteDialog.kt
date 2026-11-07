@@ -20,9 +20,17 @@ fun SessionCompleteDialog(
     onSetReminder: (() -> Unit)? = null
 ) {
     val remindersOn = remember { ServiceLocator.reminderEnabled() }
-    val anchorLabel = remember {
-        val (hour, minute) = ServiceLocator.reminderAnchor()
-        formatReminderTime(hour, minute)
+    val nextAlarmLabel = remember {
+        // Tomorrow's earliest phase (today's remaining alarms are skipped).
+        val phases = ServiceLocator.reminderPreferences().allPeriodTimes()
+        val trigger = net.lampstandapp.app.notification.ReminderCalculator
+            .calculateNextPhaseTrigger(
+                now = System.currentTimeMillis(),
+                phases = phases,
+                skipToday = true
+            )
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = trigger }
+        formatReminderTime(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -46,7 +54,7 @@ fun SessionCompleteDialog(
         text = {
             Text(
                 if (remindersOn) {
-                    "You've finished today's session. Your next session unlocks tomorrow — meditation reminders will nudge you again from $anchorLabel."
+                    "You've finished today's session. Your next session unlocks tomorrow — meditation reminders will nudge you again from $nextAlarmLabel."
                 } else {
                     "You've finished today's session. Your next session unlocks tomorrow. Turn on reminders in Profile so you don't miss it."
                 }

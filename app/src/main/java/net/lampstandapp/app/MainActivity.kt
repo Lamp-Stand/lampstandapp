@@ -1,12 +1,17 @@
 package net.lampstandapp.app
 
+import android.Manifest
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -44,6 +51,7 @@ import net.lampstandapp.app.journey.JourneyDashboardSession
 import net.lampstandapp.app.journey.JourneyListScreen
 import net.lampstandapp.app.journey.JourneyScreen
 import net.lampstandapp.app.journey.SessionCompleteDialog
+import net.lampstandapp.app.journey.SessionRestartDialog
 import net.lampstandapp.app.journey.SessionUnavailableScreen
 import net.lampstandapp.app.notification.ReminderScheduler
 import net.lampstandapp.app.paths.FandAPathScreen
@@ -60,18 +68,22 @@ import kotlinx.coroutines.launch
 private enum class AuthRoute { SignedOut, SignUp, LogIn }
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
+                checkExactAlarmPermission()
+            } else {
+                // Notifications are disabled; reminders cannot appear.
+                // The user can still enable them later from Profile.
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         enableEdgeToEdge()
-
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            val granted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (!granted) {
-                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4101)
-            }
-        }
 
         // Cold start via OAuth deep link (app was not running).
         intent?.data?.getQueryParameter("code")?.takeIf { it.isNotBlank() }?.let {
@@ -103,40 +115,55 @@ class MainActivity : ComponentActivity() {
         // Opening the app (including starting a session) counts as "opened today"
         // so the reminder tone switches from "come back" to "finish with us".
         ServiceLocator.markAppOpened()
-        // Re-arm after returning from notification/exact-alarm settings.
-        ReminderScheduler.sync(this)
+        // Re-check permissions when returning from Settings and re-arm if both
+        // notification and exact-alarm access are available.
+        checkReminderPermissions()
     }
 
-    internal fun requestReminderPermissions() {
-        val notificationsGranted =
-            android.os.Build.VERSION.SDK_INT < 33 ||
-                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (!notificationsGranted) {
-            requestPermissions(
-                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
-                4101
+    /** Entry point for the reminder permission flow. Call when reminders are enabled. */
+    fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val permission = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
             )
-        } else {
-            ReminderScheduler.requestExactAlarmAccess(this)
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 4101) {
-            ServiceLocator.init(this)
-            ReminderScheduler.sync(this)
-            val granted = grantResults.firstOrNull() ==
-                android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (granted && ServiceLocator.reminderEnabled()) {
-                // Reminder synced via WorkManager
+            if (permission != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(
+                    Manifest.permission.POST_NOTIFICATIONS
+                )
+                return
             }
         }
+        checkExactAlarmPermission()
+    }
+
+    private fun checkReminderPermissions() {
+        val notificationsAllowed =
+            NotificationManagerCompat.from(this).areNotificationsEnabled()
+        val exactAlarmsAllowed = ReminderScheduler.canScheduleExactAlarms(this)
+        if (notificationsAllowed && exactAlarmsAllowed) {
+            ReminderScheduler.sync(this)
+        }
+    }
+
+    private fun checkExactAlarmPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (!ReminderScheduler.canScheduleExactAlarms(this)) {
+                ReminderScheduler.requestExactAlarmAccess(this)
+                return
+            }
+        }
+        finishReminderSetup()
+    }
+
+    private fun finishReminderSetup() {
+        val notificationsAllowed =
+            NotificationManagerCompat.from(this).areNotificationsEnabled()
+        if (!notificationsAllowed) {
+            // Tell the user to enable notifications in app settings.
+            return
+        }
+        ReminderScheduler.sync(this)
     }
 
     companion object {
@@ -410,12 +437,13 @@ fun LampStandApp(
                                                 contactPreference = data.contactPreference,
                                                 timezone = data.timezone,
                                                 reminderHour = data.reminderHour,
-                                                reminderMinute = data.reminderMinute
+                                                reminderMinute = data.reminderMinute,
+                                                reminderTimes = data.reminderTimes
                                             ).onSuccess {
                                                 onboardingDone = true
                                                 ServiceLocator.saveOnboardingCompleted(true)
                                                 ReminderScheduler.sync(context)
-                                                context.findMainActivity()?.requestReminderPermissions()
+                                                context.findMainActivity()?.requestNotificationPermission()
                                             }.onFailure {
                                                 onboardError = it.message ?: "Couldn't save — try again"
                                             }
@@ -486,6 +514,16 @@ fun LampStandApp(
                             var sessionAvailabilityNextDay by rememberSaveable {
                                 mutableStateOf(0)
                             }
+                            // Restart session popup: shown after completion or after an
+                            // idle period on an incomplete session.
+                            var showRestartDialog by rememberSaveable { mutableStateOf(false) }
+                            var restartMessage by remember { mutableStateOf("") }
+                            // When the current session screen was opened, used to detect
+                            // an incomplete session that's been left open too long.
+                            var sessionOpenedAt by remember { mutableStateOf<Long?>(null) }
+                            // True after the user confirms a journey restart; cleared when
+                            // a new session completes (so Revert reverts to Restart).
+                            var journeyRestarted by rememberSaveable { mutableStateOf(false) }
                             LaunchedEffect(googleSignedIn, onboardingDone) { formationVm.loadDiscovery() }
                             // Web parity: the dashboard's Convex useQuery is live and
                             // / remounts on every navigation, so Home always shows the
@@ -608,26 +646,43 @@ fun LampStandApp(
                             val liveSession = (sessionUi as? net.lampstandapp.app.formation.SessionUi.Content)?.session
                             val sessionLoadError =
                                 (sessionUi as? net.lampstandapp.app.formation.SessionUi.Error)?.message
+                            // Mark when the session screen was opened so we can detect an
+                            // incomplete session left open past the idle window.
+                            if (liveSession != null && sessionOpenedAt == null) {
+                                sessionOpenedAt = System.currentTimeMillis()
+                            }
+                            // Restart-session reminder: if the user leaves a session open
+                            // and incomplete past the idle window, offer to restart it.
+                            LaunchedEffect(sessionOpenedAt, showSession, liveSession) {
+                                if (showSession && liveSession != null && sessionOpenedAt != null) {
+                                    val idleMs = System.currentTimeMillis() - sessionOpenedAt!!
+                                    val idleWindowMs = 30L * 60_000L // 30 minutes
+                                    if (idleMs >= idleWindowMs && !ServiceLocator.todaySessionCompleted()) {
+                                        restartMessage =
+                                            "You left today's session unfinished. Want to restart it?"
+                                        showRestartDialog = true
+                                    }
+                                }
+                            }
                             if (showPrivacy) {
                                 PrivacyPolicyScreen(onBack = { showPrivacy = false })
                             } else if (showTerms) {
                                 TermsOfServiceScreen(onBack = { showTerms = false })
                             } else if (showProfileEdit) {
-                                val savedAnchor = ServiceLocator.reminderAnchor()
+                                val savedPeriods = ServiceLocator.reminderPreferences()
                                 ProfileEditScreen(
                                     initialFirstName = profileFirstName,
                                     initialLastName = profileLastName,
                                     initialPhone = me?.phoneNumber ?: user.phone,
                                     initialReminderEnabled = ServiceLocator.reminderEnabled(),
                                     initialReminderSlot = ServiceLocator.slotForStudyTime(me?.studyTimePreference),
-                                    initialReminderHour = savedAnchor.first,
-                                    initialReminderMinute = savedAnchor.second,
+                                    initialSlotTimes = savedPeriods.allPeriodTimes(),
                                     onBack = { showProfileEdit = false },
                                     onItemSelected = {
                                         showProfileEdit = false
                                         selectedTab = it
                                     },
-                                    onSave = { first, last, phone, reminderEnabled, slot, anchorHour, anchorMinute ->
+                                    onSave = { first, last, phone, reminderEnabled, slot, slotTimes ->
                                         scope.launch {
                                             // Real identity lives in Convex: users:me feeds
                                             // the Dashboard + Profile, so write there and
@@ -637,8 +692,12 @@ fun LampStandApp(
                                                 .onSuccess {
                                                     ServiceLocator.setReminderEnabled(reminderEnabled)
                                                     if (reminderEnabled) {
-                                                        // The edited time re-anchors the 5-hour chain.
-                                                        ServiceLocator.setReminderAnchor(anchorHour, anchorMinute)
+                                                        // Four independent period times, each
+                                                        // validated against its own window.
+                                                        slotTimes.forEachIndexed { period, (h, m) ->
+                                                            ServiceLocator.setReminderPeriod(period, h, m)
+                                                        }
+                                                        ServiceLocator.setReminderAnchorPeriod(slot)
                                                         ServiceLocator.updateNotificationPreferences(
                                                             studyTimePreference = ServiceLocator.studyTimeForSlot(slot),
                                                             contactPreference = me?.contactPreference ?: "email",
@@ -649,7 +708,7 @@ fun LampStandApp(
                                                     }
                                                     ReminderScheduler.sync(context)
                                                     if (reminderEnabled) {
-                                                        context.findMainActivity()?.requestReminderPermissions()
+                                                        context.findMainActivity()?.requestNotificationPermission()
                                                     }
                                                     showProfileEdit = false
                                                     formationVm.loadMe()
@@ -778,7 +837,22 @@ fun LampStandApp(
                                             loadError = (overviewUi as? net.lampstandapp.app.formation.OverviewUi.Error)?.message,
                                             onRetry = {
                                                 (openedPathId ?: home?.pathId)?.let { formationVm.loadOverview(it) }
-                                            }
+                                            },
+                                            onRestartConfirm = {
+                                                journeyRestarted = true
+                                                (openedPathId ?: home?.pathId)?.let {
+                                                    formationVm.loadOverview(it)
+                                                }
+                                                formationVm.loadHome()
+                                            },
+                                            onRevertClick = {
+                                                journeyRestarted = false
+                                                (openedPathId ?: home?.pathId)?.let {
+                                                    formationVm.loadOverview(it)
+                                                }
+                                                formationVm.loadHome()
+                                            },
+                                            canRevert = journeyRestarted
                                         )
                                     } else {
                                         // Web /my-journey: the Journey tab's entry screen —
@@ -881,6 +955,9 @@ fun LampStandApp(
                                                     ).show()
                                                     ServiceLocator.recordSessionCompletedNow()
                                                     ReminderScheduler.sync(context)
+                                                    // A new session was completed — the restart is
+                                                    // no longer revertible; button shows Restart again.
+                                                    journeyRestarted = false
                                                     // Back to the backend's idea of "today" so the next
                                                     // available session is picked up after a completion.
                                                     selectedSessionId = null
@@ -896,6 +973,10 @@ fun LampStandApp(
                                                             postCompleteFlow = "feedback"
                                                         } else {
                                                             showSession = false
+                                                            sessionOpenedAt = null
+                                                            restartMessage =
+                                                                "You've completed today's session. Want to restart it?"
+                                                            showRestartDialog = true
                                                         }
                                                     }
                                                 }.onFailure {
@@ -918,6 +999,8 @@ fun LampStandApp(
                                         selectedSessionId = null
                                         sessionError = null
                                         sessionAvailabilityMessage = null
+                                        sessionOpenedAt = null
+                                        showRestartDialog = false
                                     }
                                     // Web: top-left back on every session section returned
                                     // to /my-journey/[id]; with that page gone, it goes
@@ -928,6 +1011,8 @@ fun LampStandApp(
                                         sessionError = null
                                         sessionAvailabilityMessage = null
                                         showSession = false
+                                        sessionOpenedAt = null
+                                        showRestartDialog = false
                                     }
                                     when (postCompleteFlow) {
                                         // Web feedback → completed → looking-forward → support.
@@ -1108,6 +1193,22 @@ fun LampStandApp(
                                                     // Only rendered by the dialog while
                                                     // reminders are off.
                                                     onSetReminder = { showProfileEdit = true }
+                                                )
+                                            }
+                                            if (showRestartDialog) {
+                                                SessionRestartDialog(
+                                                    message = restartMessage,
+                                                    onRestart = {
+                                                        showRestartDialog = false
+                                                        sessionOpenedAt = System.currentTimeMillis()
+                                                        selectedSessionId = liveSession?.sessionId
+                                                        showSession = true
+                                                        journeySection = 0
+                                                    },
+                                                    onDismiss = {
+                                                        showRestartDialog = false
+                                                        backToJourney()
+                                                    }
                                                 )
                                             }
                                         }

@@ -28,8 +28,18 @@ object ServiceLocator {
     private const val KEY_REMINDER_ENABLED = "reminder_enabled_v1"
     private const val KEY_REMINDER_ANCHOR_HOUR = "reminder_anchor_hour_v1"
     private const val KEY_REMINDER_ANCHOR_MINUTE = "reminder_anchor_minute_v1"
+    private const val KEY_REMINDER_MORNING_HOUR = "reminder_morning_hour_v1"
+    private const val KEY_REMINDER_MORNING_MINUTE = "reminder_morning_minute_v1"
+    private const val KEY_REMINDER_NOON_HOUR = "reminder_noon_hour_v1"
+    private const val KEY_REMINDER_NOON_MINUTE = "reminder_noon_minute_v1"
+    private const val KEY_REMINDER_EVENING_HOUR = "reminder_evening_hour_v1"
+    private const val KEY_REMINDER_EVENING_MINUTE = "reminder_evening_minute_v1"
+    private const val KEY_REMINDER_NIGHT_HOUR = "reminder_night_hour_v1"
+    private const val KEY_REMINDER_NIGHT_MINUTE = "reminder_night_minute_v1"
+    private const val KEY_REMINDER_ANCHOR_PERIOD = "reminder_anchor_period_v1"
     private const val KEY_LAST_APP_OPEN = "last_app_open_at_v1"
     private const val KEY_LAST_REMINDER_AT = "last_reminder_at_v1"
+    private const val KEY_NEXT_REMINDER_AT = "next_reminder_at_v1"
     private const val KEY_REMINDER_MESSAGE_INDEX = "reminder_message_index_v1"
 
     private var appContext: Context? = null
@@ -419,9 +429,9 @@ object ServiceLocator {
     }
 
     /**
-     * Anchor (first) time of the meditation reminder chain. The scheduler
-     * fires at this time, then every 5 hours after it (+5h, +10h, +15h),
-     * only while today's session is still unfinished.
+     * Legacy single anchor time (pre four-alarm model). Kept for the
+     * onboarding fallback; scheduling now uses reminderPreferences()
+     * period times — see ReminderPreferences.WINDOWS_MINUTES.
      */
     fun reminderAnchor(): Pair<Int, Int> {
         val hour = try {
@@ -447,28 +457,62 @@ object ServiceLocator {
         } catch (_: Exception) { /* best-effort */ }
     }
 
-    fun getReminderSlotsTimes(): Map<Int, Pair<Int, Int>> {
-        val defaults = mapOf(
-            0 to (6 to 45),
-            1 to (12 to 30),
-            2 to (18 to 0),
-            3 to (21 to 30)
+    /** Returns the reminder preferences for all four periods and the anchor. */
+    fun reminderPreferences(): net.lampstandapp.app.notification.ReminderPreferences {
+        val prefs = try {
+            cachePrefs
+        } catch (_: Exception) {
+            null
+        } ?: return net.lampstandapp.app.notification.ReminderPreferences()
+        return net.lampstandapp.app.notification.ReminderPreferences(
+            morningHour = prefs.getInt(KEY_REMINDER_MORNING_HOUR, 6),
+            morningMinute = prefs.getInt(KEY_REMINDER_MORNING_MINUTE, 45),
+            noonHour = prefs.getInt(KEY_REMINDER_NOON_HOUR, 12),
+            noonMinute = prefs.getInt(KEY_REMINDER_NOON_MINUTE, 30),
+            eveningHour = prefs.getInt(KEY_REMINDER_EVENING_HOUR, 17),
+            eveningMinute = prefs.getInt(KEY_REMINDER_EVENING_MINUTE, 0),
+            nightHour = prefs.getInt(KEY_REMINDER_NIGHT_HOUR, 21),
+            nightMinute = prefs.getInt(KEY_REMINDER_NIGHT_MINUTE, 0),
+            anchorPeriod = prefs.getInt(KEY_REMINDER_ANCHOR_PERIOD, 0)
         )
-        return (0 until 4).associateWith { index ->
-            val h = cachePrefs?.getInt("KEY_SLOT_${index}_HOUR", defaults[index]!!.first) ?: defaults[index]!!.first
-            val m = cachePrefs?.getInt("KEY_SLOT_${index}_MINUTE", defaults[index]!!.second) ?: defaults[index]!!.second
-            h to m
-        }
     }
 
-    fun setReminderSlotTime(index: Int, hour: Int, minute: Int) {
-        if (index !in 0..3 || hour !in 0..23 || minute !in 0..59) return
+    /** Persists the reminder preferences for all four periods and the anchor. */
+    fun setReminderPreferences(prefs: net.lampstandapp.app.notification.ReminderPreferences) {
         try {
             cachePrefs?.edit()
-                ?.putInt("KEY_SLOT_${index}_HOUR", hour)
-                ?.putInt("KEY_SLOT_${index}_MINUTE", minute)
+                ?.putInt(KEY_REMINDER_MORNING_HOUR, prefs.morningHour)
+                ?.putInt(KEY_REMINDER_MORNING_MINUTE, prefs.morningMinute)
+                ?.putInt(KEY_REMINDER_NOON_HOUR, prefs.noonHour)
+                ?.putInt(KEY_REMINDER_NOON_MINUTE, prefs.noonMinute)
+                ?.putInt(KEY_REMINDER_EVENING_HOUR, prefs.eveningHour)
+                ?.putInt(KEY_REMINDER_EVENING_MINUTE, prefs.eveningMinute)
+                ?.putInt(KEY_REMINDER_NIGHT_HOUR, prefs.nightHour)
+                ?.putInt(KEY_REMINDER_NIGHT_MINUTE, prefs.nightMinute)
+                ?.putInt(KEY_REMINDER_ANCHOR_PERIOD, prefs.anchorPeriod)
                 ?.apply()
         } catch (_: Exception) { /* best-effort */ }
+    }
+
+    /** Convenience: sets a single period's time. */
+    fun setReminderPeriod(period: Int, hour: Int, minute: Int) {
+        if (hour !in 0..23 || minute !in 0..59) return
+        val current = reminderPreferences()
+        val updated = when (period) {
+            0 -> current.copy(morningHour = hour, morningMinute = minute)
+            1 -> current.copy(noonHour = hour, noonMinute = minute)
+            2 -> current.copy(eveningHour = hour, eveningMinute = minute)
+            3 -> current.copy(nightHour = hour, nightMinute = minute)
+            else -> current
+        }
+        setReminderPreferences(updated)
+    }
+
+    /** Convenience: sets the anchor period (0=Morning, 1=Noon, 2=Evening, 3=Night). */
+    fun setReminderAnchorPeriod(period: Int) {
+        if (period !in 0..3) return
+        val current = reminderPreferences()
+        setReminderPreferences(current.copy(anchorPeriod = period))
     }
 
     /** Launching the app (including starting a session) marks the day as opened. */
@@ -486,15 +530,46 @@ object ServiceLocator {
         0L
     }
 
-    fun lastReminderAt(): Long = try {
-        cachePrefs?.getLong(KEY_LAST_REMINDER_AT, 0L) ?: 0L
-    } catch (_: Exception) {
-        0L
+    fun lastReminderAt(): Long? {
+        val timestamp = cachePrefs?.getLong(KEY_LAST_REMINDER_AT, 0L) ?: 0L
+        return timestamp.takeIf { it > 0L }
     }
 
+    /** Records the moment an alarm fired (delivery history / message rotation). */
+    fun recordReminderDelivered() {
+        try {
+            cachePrefs?.edit()?.putLong(KEY_LAST_REMINDER_AT, System.currentTimeMillis())?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+    }
+
+    /** Records the moment the notification was actually displayed to the user. */
     fun recordReminderShown() {
         try {
             cachePrefs?.edit()?.putLong(KEY_LAST_REMINDER_AT, System.currentTimeMillis())?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+    }
+
+    /** Returns the next scheduled reminder timestamp, or null if none is saved. */
+    fun nextReminderAt(): Long? {
+        val timestamp = cachePrefs?.getLong(KEY_NEXT_REMINDER_AT, 0L) ?: 0L
+        return timestamp.takeIf { it > 0L }
+    }
+
+    /** Persists the next scheduled reminder timestamp. */
+    fun setNextReminderAt(timestamp: Long) {
+        try {
+            cachePrefs?.edit()
+                ?.putLong(KEY_NEXT_REMINDER_AT, timestamp)
+                ?.apply()
+        } catch (_: Exception) { /* best-effort */ }
+    }
+
+    /** Clears the saved next reminder timestamp. */
+    fun clearNextReminderAt() {
+        try {
+            cachePrefs?.edit()
+                ?.remove(KEY_NEXT_REMINDER_AT)
+                ?.apply()
         } catch (_: Exception) { /* best-effort */ }
     }
 
@@ -582,7 +657,8 @@ object ServiceLocator {
         contactPreference: String = "email",
         timezone: String,
         reminderHour: Int = -1,
-        reminderMinute: Int = -1
+        reminderMinute: Int = -1,
+        reminderTimes: List<Pair<Int, Int>> = emptyList()
     ): Result<Unit> = runCatchingCancellable {
         val bearer = tokenStore.bearerOrNull()
             ?: throw IllegalStateException("Not signed in — sign in with Google first")
@@ -612,9 +688,19 @@ object ServiceLocator {
             )
         )
         // Reminders start automatically after onboarding; Profile has the opt-out.
-        // The picked time anchors the 5-hour meditation reminder chain.
+        // Four independent period times, each validated against its own window
+        // (5:00 AM – 11:00 PM). Legacy single-time path kept as fallback.
         setReminderEnabled(true)
-        if (reminderHour in 0..23 && reminderMinute in 0..59) {
+        if (reminderTimes.size == 4) {
+            reminderTimes.forEachIndexed { period, (h, m) ->
+                if (net.lampstandapp.app.notification.ReminderPreferences
+                        .isValidTime(period, h, m)
+                ) {
+                    setReminderPeriod(period, h, m)
+                }
+            }
+            setReminderAnchorPeriod(slotForStudyTime(studyTimePreference))
+        } else if (reminderHour in 0..23 && reminderMinute in 0..59) {
             setReminderAnchor(reminderHour, reminderMinute)
         }
         saveOnboardingCompleted(true)

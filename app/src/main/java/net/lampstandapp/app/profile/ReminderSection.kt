@@ -51,37 +51,6 @@ val DefaultReminderSlots = listOf(
     ReminderSlot("Before Bed", "A quiet close to the day", "☾")
 )
 
-/** Hours between meditation reminder rings while a session is pending. */
-private const val CHAIN_STEP_HOURS = 5
-
-fun isTimeValidForSlot(slotIndex: Int, hour: Int, minute: Int): Boolean {
-    return when (slotIndex) {
-        0 -> hour in 4..11
-        1 -> hour in 12..16
-        2 -> hour in 17..20
-        3 -> hour in 21..23 || hour in 0..3
-        else -> true
-    }
-}
-
-fun slotTimeRangeName(slotIndex: Int): String {
-    return when (slotIndex) {
-        0 -> "4:00 AM – 11:59 AM"
-        1 -> "12:00 PM – 4:59 PM"
-        2 -> "5:00 PM – 8:59 PM"
-        3 -> "9:00 PM – 3:59 AM"
-        else -> ""
-    }
-}
-
-/** Default independent reminder times for each slot. */
-fun defaultReminderTimes(): Map<Int, Pair<Int, Int>> = mapOf(
-    0 to (6 to 45),
-    1 to (12 to 30),
-    2 to (18 to 0),
-    3 to (21 to 30)
-)
-
 fun formatReminderTime(hour: Int, minute: Int): String {
     val suffix = if (hour < 12) "AM" else "PM"
     val h12 = if (hour % 12 == 0) 12 else hour % 12
@@ -91,9 +60,12 @@ fun formatReminderTime(hour: Int, minute: Int): String {
 /**
  * Meditation-time cards with user-editable times.
  *
- * Tapping a card selects the slot; tapping the time chip opens a
- * time picker scoped to that slot. [onTimePicked] fires after a
- * successful pick so the host can confirm it (e.g. snackbar).
+ * Each card is an INDEPENDENT daily alarm locked to its own window
+ * (Morning 5:00–11:59 AM, Noon 12:00–4:59 PM, Evening 5:00–8:59 PM,
+ * Night 9:00–11:00 PM). Tapping a card selects it; tapping the time chip
+ * opens a time picker scoped to that card. Picks outside the card's
+ * window are rejected with an inline error. [onTimeChange] fires for the
+ * edited slot only — other slots are untouched.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,6 +78,7 @@ fun ReminderTimeCards(
     showHint: Boolean = true
 ) {
     var pickerSlot by remember { mutableStateOf<Int?>(null) }
+    var pickerError by remember { mutableStateOf<String?>(null) }
 
     if (showHint) {
         Row(
@@ -218,7 +191,10 @@ fun ReminderTimeCards(
             is24Hour = false
         )
         AlertDialog(
-            onDismissRequest = { pickerSlot = null },
+            onDismissRequest = {
+                pickerSlot = null
+                pickerError = null
+            },
             title = {
                 Text(
                     text = "${DefaultReminderSlots[slotIndex].title} meditation time",
@@ -226,21 +202,54 @@ fun ReminderTimeCards(
                     color = Blue
                 )
             },
-            text = { TimePicker(state = pickerState) },
+            text = {
+                Column {
+                    Text(
+                        text = "Allowed: ${net.lampstandapp.app.notification.ReminderPreferences.windowLabel(slotIndex)}",
+                        fontSize = 13.sp,
+                        color = BodyGrey
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TimePicker(state = pickerState)
+                    if (pickerError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = pickerError ?: "",
+                            fontSize = 13.sp,
+                            color = Color(0xFFC0392B)
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        onTimeChange(slotIndex, pickerState.hour, pickerState.minute)
-                        onTimePicked(
-                            DefaultReminderSlots[slotIndex].title,
-                            formatReminderTime(pickerState.hour, pickerState.minute)
-                        )
-                        pickerSlot = null
+                        val h = pickerState.hour
+                        val m = pickerState.minute
+                        if (net.lampstandapp.app.notification.ReminderPreferences
+                                .isValidTime(slotIndex, h, m)
+                        ) {
+                            onTimeChange(slotIndex, h, m)
+                            onTimePicked(
+                                DefaultReminderSlots[slotIndex].title,
+                                formatReminderTime(h, m)
+                            )
+                            pickerSlot = null
+                            pickerError = null
+                        } else {
+                            pickerError =
+                                "${DefaultReminderSlots[slotIndex].title} must be between " +
+                                    net.lampstandapp.app.notification.ReminderPreferences
+                                        .windowLabel(slotIndex)
+                        }
                     }
                 ) { Text("Set time", color = Blue) }
             },
             dismissButton = {
-                TextButton(onClick = { pickerSlot = null }) {
+                TextButton(onClick = {
+                    pickerSlot = null
+                    pickerError = null
+                }) {
                     Text("Cancel", color = BodyGrey)
                 }
             }
