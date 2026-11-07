@@ -241,6 +241,24 @@ class ConvexFormationRepository(
         } catch (_: Exception) { /* best-effort */ }
     }
 
+    override suspend fun resetUserJourney(userId: String): Result<Unit> {
+        return try {
+            val bearer = tokens.bearerOrNull()
+                ?: return Result.failure(IllegalStateException("Sign in to restart your journey"))
+            val args = buildJsonObject {
+                put("userId", kotlinx.serialization.json.JsonPrimitive(userId))
+            }
+            ConvexClient.valueOf(
+                api.mutation(ConvexBodies.mutation("users:resetUserJourney", args), bearer)
+            )
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     override suspend fun getMe(): Result<MeDto?> {
         return try {
             val raw = ConvexClient.valueOf(

@@ -247,9 +247,7 @@ fun JourneyDashboardScreen(
     isLoading: Boolean = false,
     loadError: String? = null,
     onRetry: (() -> Unit)? = null,
-    onRestartConfirm: () -> Unit = {},
-    onRevertClick: () -> Unit = {},
-    canRevert: Boolean = false
+    onRestartConfirm: () -> Unit = {}
 ) {
     val resolvedActiveDay = currentDay
         ?: sessions.firstOrNull { it.status == "available" }?.dayNumber
@@ -533,36 +531,28 @@ fun JourneyDashboardScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Restart / Revert button below the sessions list.
-                // "Restart" opens a confirmation dialog; after confirming, the button
-                // becomes "Revert" until a new session is completed (parent clears
-                // canRevert), at which point it shows "Restart" again.
+                // Restart button below the sessions list — opens a confirmation
+                // dialog; confirm calls onRestartConfirm (server-side reset).
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .width(334.dp)
                         .heightIn(min = 44.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (canRevert) Color(0xFFE8F0F4) else Color(0xFFFDECEC))
+                        .background(Color(0xFFFDECEC))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = {
-                                if (canRevert) {
-                                    onRevertClick()
-                                } else {
-                                    showRestartConfirm = true
-                                }
-                            }
+                            onClick = { showRestartConfirm = true }
                         )
                         .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
                     Text(
-                        text = if (canRevert) "Revert Restart" else "Restart Journey",
+                        text = "Restart Journey",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         lineHeight = 20.sp,
-                        color = if (canRevert) Primary else Color(0xFFC0392B),
+                        color = Color(0xFFC0392B),
                         maxLines = 1,
                         textAlign = TextAlign.Center
                     )
@@ -570,10 +560,14 @@ fun JourneyDashboardScreen(
             }
         }
 
-        // Confirmation dialog for restarting the journey.
+        // Confirmation dialog for restarting the journey — bright surface so it
+        // pops off the dashboard instead of blending into the muted page.
         if (showRestartConfirm) {
             AlertDialog(
                 onDismissRequest = { showRestartConfirm = false },
+                containerColor = Color.White,
+                titleContentColor = Color(0xFF184159),
+                textContentColor = Color(0xFF3A3A3A),
                 confirmButton = {
                     TextButton(
                         onClick = {
@@ -581,21 +575,36 @@ fun JourneyDashboardScreen(
                             onRestartConfirm()
                         }
                     ) {
-                        Text("Restart", fontWeight = FontWeight.SemiBold, color = Color(0xFFC0392B))
+                        Text(
+                            "Restart",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFE5484D)
+                        )
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showRestartConfirm = false }) {
-                        Text("Cancel", fontWeight = FontWeight.SemiBold, color = BodyText)
+                        Text(
+                            "Cancel",
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF535353)
+                        )
                     }
                 },
                 title = {
-                    Text("Restart Journey?", fontWeight = FontWeight.SemiBold, color = PrimaryInk)
+                    Text(
+                        "Restart Journey?",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        color = Color(0xFF184159)
+                    )
                 },
                 text = {
                     Text(
-                        "This will reset your progress on this path. You can revert this action until you complete a new session.",
-                        color = BodyText
+                        "This will reset your progress on this path. You'll start again from day 1.",
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                        color = Color(0xFF3A3A3A)
                     )
                 }
             )

@@ -104,7 +104,7 @@ fun DashboardSignedOutScreen(
                     modifier = Modifier.clickable(onClick = onNotificationClick)
                 ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.ic_notification),
+                        painter = painterResource(id = R.drawable.ic_bell),
                         contentDescription = "Notifications",
                         tint = Blue,
                         modifier = Modifier.size(24.dp)

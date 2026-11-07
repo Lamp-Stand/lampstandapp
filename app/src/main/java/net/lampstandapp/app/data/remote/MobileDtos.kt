@@ -50,6 +50,7 @@ data class HomeStateDto(
 
 @Serializable
 data class MeDto(
+    val _id: String? = null,
     val firstName: String? = null,
     val lastName: String? = null,
     val name: String? = null,

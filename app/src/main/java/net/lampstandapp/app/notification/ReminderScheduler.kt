@@ -22,19 +22,24 @@ import net.lampstandapp.app.data.ServiceLocator
 import java.util.Calendar
 
 /**
- * Meditation session reminders are on by default. Four INDEPENDENT daily
- * alarms — Morning, Noon, Evening, Night — each locked to its own window
- * inside 5:00 AM – 11:00 PM (ReminderPreferences.WINDOWS_MINUTES). They
- * ring only as a nudge to start or finish today's session, stopping once
- * the session is completed or the user switches reminders off in Profile.
+ * Four INDEPENDENT daily alarms — Morning, Noon, Evening, Night — locked to
+ * their own windows inside 5:00 AM – 11:00 PM (ReminderPreferences).
+ *
+ * Model: arm each slot once for its next occurrence and leave it alone.
+ * A slot re-arms itself only after it fires. sync() only fills gaps (missed
+ * fire, boot, prefs change) — it does not cancel/rebuild the whole day on
+ * every app resume. All slots are cancelled only when today's session is
+ * complete, reminders are off, or the path is finished.
  */
 object ReminderScheduler {
     private const val CHANNEL_ID = "lampstand_daily_reminder"
     private const val NOTIFICATION_ID = 4101
-    private const val ALARM_REQUEST = 4102
-
-    /** Suppress a re-arm of the slot that just fired if the OS delivered it early. */
-    private const val REARM_GUARD_MS = 10 * 60 * 1000L
+    private const val ALARM_REQUEST_BASE = 4102
+    private const val SLOT_COUNT = 4
+    private const val EXTRA_SLOT = "lampstand.slot"
+    internal const val EXTRA_SLOT_KEY = EXTRA_SLOT
+    private const val PREFS_NAME = "lampstand_alarm_slots"
+    private const val KEY_SLOT_PREFIX = "t"
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -53,11 +58,10 @@ object ReminderScheduler {
     }
 
     /**
-     * The reminder schedule: four independent daily alarms (Morning, Noon,
-     * Evening, Night) inside 5:00 AM – 11:00 PM — until today's session is
-     * completed or the user switches reminders off in Profile.
+     * Idempotent: arm any slot that is missing or stale (stored trigger in the
+     * past = missed fire). Never touches a slot whose stored time matches the
+     * desired next occurrence.
      */
-
     fun sync(context: Context) {
         ServiceLocator.init(context)
         val active = ServiceLocator.hasConvexSession() &&
@@ -65,36 +69,99 @@ object ReminderScheduler {
             !ServiceLocator.isPathComplete()
 
         if (!active) {
-            cancel(context)
+            cancelAll(context)
             return
         }
-        // Completed today? Skip the rest of today but keep tomorrow's first
-        // alarm alive so the user is nudged again on the next day.
-        scheduleNext(context, skipToday = ServiceLocator.todaySessionCompleted())
+
+        ensureChannel(context)
+        val phases = ServiceLocator.reminderPreferences().allPeriodTimes()
+        val now = System.currentTimeMillis()
+
+        if (ServiceLocator.todaySessionCompleted()) {
+            // Session done for today: drop every pending slot and arm tomorrow's four.
+            cancelAll(context)
+            phases.forEachIndexed { slot, (hour, minute) ->
+                armSlot(context, slot, startOfNextDay(now, hour, minute))
+            }
+            return
+        }
+
+        phases.forEachIndexed { slot, (hour, minute) ->
+            val desired = nextOccurrence(now, hour, minute)
+            val stored = storedTrigger(context, slot)
+            val exists = slotExists(context, slot)
+            if (!exists || stored != desired) {
+                // Missing, time prefs changed, or stored trigger is stale/past.
+                cancelSlot(context, slot)
+                armSlot(context, slot, desired)
+            }
+        }
     }
 
-    private fun scheduleNext(context: Context, skipToday: Boolean = false) {
-        ensureChannel(context)
-        val alarm = context.getSystemService(AlarmManager::class.java) ?: return
-        val triggerAt = nextTriggerAt(skipToday = skipToday)
+    /** Full rebuild — use when clock/timezone changed or reminder times were edited. */
+    fun reschedule(context: Context) {
+        cancelAll(context)
+        sync(context)
+    }
 
-        Log.d(
-            "ReminderScheduler",
-            "Scheduling next reminder: ${java.util.Date(triggerAt)}"
-        )
+    private fun nextOccurrence(now: Long, hour: Int, minute: Int): Long {
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = now
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        if (cal.timeInMillis <= now) {
+            cal.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        return cal.timeInMillis
+    }
+
+    private fun startOfNextDay(now: Long, hour: Int, minute: Int): Long {
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = now
+            add(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return cal.timeInMillis
+    }
+
+    private fun receiverIntent(context: Context, slot: Int): Intent =
+        Intent(context, ReminderReceiver::class.java).putExtra(EXTRA_SLOT, slot)
+
+    private fun slotPrefs(context: Context) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun storedTrigger(context: Context, slot: Int): Long =
+        slotPrefs(context).getLong(KEY_SLOT_PREFIX + slot, 0L)
+
+    private fun slotExists(context: Context, slot: Int): Boolean =
+        PendingIntent.getBroadcast(
+            context,
+            ALARM_REQUEST_BASE + slot,
+            receiverIntent(context, slot),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        ) != null
+
+    private fun armSlot(context: Context, slot: Int, triggerAt: Long) {
+        val alarm = context.getSystemService(AlarmManager::class.java) ?: return
+        Log.d("ReminderScheduler", "Arming slot $slot at ${java.util.Date(triggerAt)}")
+        try {
+            slotPrefs(context).edit().putLong(KEY_SLOT_PREFIX + slot, triggerAt).apply()
+        } catch (_: Exception) { /* best-effort */ }
         val pending = PendingIntent.getBroadcast(
             context,
-            ALARM_REQUEST,
-            Intent(context, ReminderReceiver::class.java),
+            ALARM_REQUEST_BASE + slot,
+            receiverIntent(context, slot),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         try {
             if (canScheduleExactAlarms(context)) {
-                alarm.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAt,
-                    pending
-                )
+                alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
             } else {
                 alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
             }
@@ -107,20 +174,34 @@ object ReminderScheduler {
         }
     }
 
-    internal fun nextTriggerAt(
-        now: Long = System.currentTimeMillis(),
-        skipToday: Boolean = false
-    ): Long {
-        // If the OS delivered the last alarm early, hold the next re-arm
-        // until at least 10 minutes after it (their REARM_GUARD_MS idea).
-        val last = ServiceLocator.lastReminderAt()
-        val cutoff = if (last != null) maxOf(now, last + REARM_GUARD_MS) else now
-        val phases = ServiceLocator.reminderPreferences().allPeriodTimes()
-        return ReminderCalculator.calculateNextPhaseTrigger(
-            now = cutoff,
-            phases = phases,
-            skipToday = skipToday
-        )
+    private fun cancelSlot(context: Context, slot: Int) {
+        val alarm = context.getSystemService(AlarmManager::class.java) ?: return
+        try {
+            slotPrefs(context).edit().remove(KEY_SLOT_PREFIX + slot).apply()
+        } catch (_: Exception) { /* best-effort */ }
+        val pending = PendingIntent.getBroadcast(
+            context,
+            ALARM_REQUEST_BASE + slot,
+            receiverIntent(context, slot),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        ) ?: return
+        try {
+            alarm.cancel(pending)
+            pending.cancel()
+        } catch (_: Exception) {
+            // best-effort
+        }
+    }
+
+    fun cancelAll(context: Context) {
+        for (slot in 0 until SLOT_COUNT) {
+            cancelSlot(context, slot)
+        }
+    }
+
+    /** Drop one fired slot so sync() will re-arm it for tomorrow. */
+    internal fun clearFiredSlot(context: Context, slot: Int) {
+        if (slot in 0 until SLOT_COUNT) cancelSlot(context, slot)
     }
 
     fun canScheduleExactAlarms(context: Context): Boolean {
@@ -145,27 +226,8 @@ object ReminderScheduler {
         }
     }
 
-    fun cancel(context: Context) {
-        val alarm = context.getSystemService(AlarmManager::class.java) ?: return
-        val pending = PendingIntent.getBroadcast(
-            context,
-            ALARM_REQUEST,
-            Intent(context, ReminderReceiver::class.java),
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-        ) ?: return
-        try {
-            alarm.cancel(pending)
-            pending.cancel()
-        } catch (_: Exception) {
-            // best-effort
-        }
-    }
-
     fun showNotification(context: Context) {
-        Log.d(
-            "ReminderReceiver",
-            "Attempting to show notification"
-        )
+        Log.d("ReminderReceiver", "Attempting to show notification")
 
         ServiceLocator.init(context)
         if (Build.VERSION.SDK_INT >= 33) {
@@ -195,7 +257,7 @@ object ReminderScheduler {
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
+            .setSmallIcon(R.drawable.ic_bell)
             .setContentTitle(message.title)
             .setContentText(message.body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(message.body))
@@ -215,14 +277,10 @@ object ReminderScheduler {
     }
 }
 
-/** Fires the daily notification and re-arms after reboot/timezone changes. */
+/** Fires the daily notification; re-arms that one slot for tomorrow. */
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-
-        Log.d(
-            "ReminderReceiver",
-            "Alarm received at: ${java.util.Date()}"
-        )
+        Log.d("ReminderReceiver", "Alarm received at: ${java.util.Date()}")
 
         ServiceLocator.init(context)
         val action = intent?.action
@@ -232,17 +290,18 @@ class ReminderReceiver : BroadcastReceiver() {
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             action == AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED
         ) {
-            ReminderScheduler.sync(context)
+            // Clock/projected-time changes invalidate stored triggers — full rebuild.
+            ReminderScheduler.reschedule(context)
             return
         }
-        // Normal alarm delivery.
-        // Record that the alarm fired before showing the notification.
+
+        // Normal alarm delivery: drop this slot, then sync re-arms it for
+        // tomorrow without touching the other three pending alarms.
+        val slot = intent?.getIntExtra(ReminderScheduler.EXTRA_SLOT_KEY, -1) ?: -1
+        ReminderScheduler.clearFiredSlot(context, slot)
+
         ServiceLocator.recordReminderDelivered()
-
-        // Display the current notification first.
-        ReminderScheduler.showNotification(context)
-
-        // Then schedule the next reminder.
         ReminderScheduler.sync(context)
+        ReminderScheduler.showNotification(context)
     }
 }

@@ -154,6 +154,28 @@ class FormationViewModel : ViewModel() {
         }
     }
 
+    /** Convex users:resetUserJourney — clear this user's path progress, then reload. */
+    fun resetUserJourney(pathId: String?, onResult: (Result<Unit>) -> Unit = {}) {
+        viewModelScope.launch {
+            var userId = _me.value?._id
+            if (userId.isNullOrBlank()) {
+                val me = repo.getMe().getOrNull()
+                if (me != null) _me.value = me
+                userId = me?._id
+            }
+            if (userId.isNullOrBlank()) {
+                onResult(Result.failure(IllegalStateException("Couldn't find your account — sign in again")))
+                return@launch
+            }
+            val r = repo.resetUserJourney(userId)
+            r.onSuccess {
+                if (pathId != null) loadOverview(pathId)
+                loadHome()
+            }
+            onResult(r)
+        }
+    }
+
     // Only the newest session fetch may publish a result. Without this, a slow
     // request for one session (or a locked next-day fetch) could overwrite the
     // content/error of the session the user is actually reading.

@@ -140,8 +140,11 @@ class MainActivity : ComponentActivity() {
     private fun checkReminderPermissions() {
         val notificationsAllowed =
             NotificationManagerCompat.from(this).areNotificationsEnabled()
-        val exactAlarmsAllowed = ReminderScheduler.canScheduleExactAlarms(this)
-        if (notificationsAllowed && exactAlarmsAllowed) {
+        // Always re-arm when notifications are on. scheduleNext falls back to
+        // inexact alarms when SCHEDULE_EXACT_ALARM is denied — gating on
+        // exact-alarm access here left zero alarms pending until the next
+        // app open (the "9pm never fires unless I open the app" bug).
+        if (notificationsAllowed) {
             ReminderScheduler.sync(this)
         }
     }
@@ -442,7 +445,7 @@ fun LampStandApp(
                                             ).onSuccess {
                                                 onboardingDone = true
                                                 ServiceLocator.saveOnboardingCompleted(true)
-                                                ReminderScheduler.sync(context)
+                                                ReminderScheduler.reschedule(context)
                                                 context.findMainActivity()?.requestNotificationPermission()
                                             }.onFailure {
                                                 onboardError = it.message ?: "Couldn't save — try again"
@@ -521,9 +524,6 @@ fun LampStandApp(
                             // When the current session screen was opened, used to detect
                             // an incomplete session that's been left open too long.
                             var sessionOpenedAt by remember { mutableStateOf<Long?>(null) }
-                            // True after the user confirms a journey restart; cleared when
-                            // a new session completes (so Revert reverts to Restart).
-                            var journeyRestarted by rememberSaveable { mutableStateOf(false) }
                             LaunchedEffect(googleSignedIn, onboardingDone) { formationVm.loadDiscovery() }
                             // Web parity: the dashboard's Convex useQuery is live and
                             // / remounts on every navigation, so Home always shows the
@@ -556,7 +556,9 @@ fun LampStandApp(
                                     }
                                 }
                             }
-                            // Reminders only exist while a path is active (web parity).
+                            // Arm on home changes (path complete / session done) —
+                            // sync is idempotent and only fills gaps, so the 15s
+                            // poll will not rewrite pending alarms.
                             LaunchedEffect(homeUi) { ReminderScheduler.sync(context) }
                             // Web: the "My Journey" nav item is a link to /my-journey,
                             // so it always resolves to the path list — never back into
@@ -706,7 +708,7 @@ fun LampStandApp(
                                                                 ?: java.util.TimeZone.getDefault().id
                                                         )
                                                     }
-                                                    ReminderScheduler.sync(context)
+                                                    ReminderScheduler.reschedule(context)
                                                     if (reminderEnabled) {
                                                         context.findMainActivity()?.requestNotificationPermission()
                                                     }
@@ -839,20 +841,12 @@ fun LampStandApp(
                                                 (openedPathId ?: home?.pathId)?.let { formationVm.loadOverview(it) }
                                             },
                                             onRestartConfirm = {
-                                                journeyRestarted = true
-                                                (openedPathId ?: home?.pathId)?.let {
-                                                    formationVm.loadOverview(it)
+                                                formationVm.resetUserJourney(openedPathId ?: home?.pathId) { r ->
+                                                    r.onFailure {
+                                                        authError(it.message ?: "Couldn't restart journey")
+                                                    }
                                                 }
-                                                formationVm.loadHome()
-                                            },
-                                            onRevertClick = {
-                                                journeyRestarted = false
-                                                (openedPathId ?: home?.pathId)?.let {
-                                                    formationVm.loadOverview(it)
-                                                }
-                                                formationVm.loadHome()
-                                            },
-                                            canRevert = journeyRestarted
+                                            }
                                         )
                                     } else {
                                         // Web /my-journey: the Journey tab's entry screen —
@@ -955,9 +949,6 @@ fun LampStandApp(
                                                     ).show()
                                                     ServiceLocator.recordSessionCompletedNow()
                                                     ReminderScheduler.sync(context)
-                                                    // A new session was completed — the restart is
-                                                    // no longer revertible; button shows Restart again.
-                                                    journeyRestarted = false
                                                     // Back to the backend's idea of "today" so the next
                                                     // available session is picked up after a completion.
                                                     selectedSessionId = null

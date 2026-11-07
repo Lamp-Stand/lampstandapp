@@ -26,4 +26,6 @@ interface FormationRepository {
     suspend fun getSessionContent(sessionId: String): Result<SessionContentDto>
     /** Complete session (web: GuidedPrayerSection → paths:completeSession, idempotent). */
     suspend fun completeSession(sessionId: String): Result<CompleteSessionResult>
+    /** Restart path progress (Convex users:resetUserJourney). Clears this user's journey state. */
+    suspend fun resetUserJourney(userId: String): Result<Unit>
 }
