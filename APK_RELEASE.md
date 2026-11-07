@@ -19,11 +19,11 @@
 | Minimum Android | Android 7.0 (API 24) |
 | Target Android | API 37 |
 | File size | 9,691,026 bytes (9.24 MB) |
-| Build date | 2026-11-07 |
+| Build date | 2026-11-08 |
 | Signing | Release-signed, verified |
 | Signer | `CN=LampStand, OU=Mobile, O=LampStand, L=Lagos, ST=Lagos, C=NG` |
 | Signer certificate SHA-256 | `5bf2df206106215a981e486c51abd2bd95116af20b75f5627ef758ba1795edc9` |
-| APK SHA-256 | `2D9299CDC8F33FBFE21F3D62BCF4DEF1841542E81D7D0725F3D8D6110C24D83F` |
+| APK SHA-256 | `A034E8988BA3E5687343C7FDDEFE796874FDF220122FB0208FE0414944B6BE5E` |
 | Backend | Convex `exciting-dodo-656` |
 
 ## Install
@@ -58,12 +58,13 @@ Back these up securely. Losing them prevents publishing future updates under the
 - **Daily reminders rebuilt:** four independent alarms (Morning / Noon / Evening / Night) are armed once for their next occurrence and left alone. Each slot re-arms itself only after it fires. Alarms are cancelled only when today's session is complete, reminders are off, or the path is finished.
 - Fixed **9pm / background reminders never firing unless the app was open**: arming no longer requires exact-alarm permission (falls back to inexact), and a missed slot is re-filled by `sync()` instead of waiting for the next app open.
 - Boot / timezone / app-update and reminder-time edits trigger a full `reschedule()` rebuild.
+- **Brighter dialogs:** Restart Journey and Session unavailable now use a white surface, bold title, and stronger button colors.
 
 ## Is this change in the APK link?
 
 **Yes, once published.** This build is `v1.0.2` (`versionCode 3`) and installs as an update over 1.0 / 1.0.1 without uninstalling.
 
-- Current SHA-256: `2D9299CDC8F33FBFE21F3D62BCF4DEF1841542E81D7D0725F3D8D6110C24D83F`
+- Current SHA-256: `A034E8988BA3E5687343C7FDDEFE796874FDF220122FB0208FE0414944B6BE5E`
 - Previous SHA-256 (1.0.1): `87E8609E7B3CF3AEABBBC68CFB98537BF77170FA256040FC4743704339CFF3E6`
 
 ## Notes
