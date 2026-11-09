@@ -640,10 +640,24 @@ fun LampStandApp(
                             // painted "Session unavailable" over the "Day X Completed"
                             // toast. Re-opening the same session also re-runs here so a
                             // previous failed load cannot stick around.
-                            LaunchedEffect(showSession, selectedSessionId, postCompleteFlow) {
-                                if (showSession && postCompleteFlow == null && selectedSessionId != null) {
-                                    formationVm.loadSession(selectedSessionId!!)
+                            // After a process restart selectedSessionId can be null
+                            // while the restored screen still wants a session — fall
+                            // back to the backend's id, but never re-point at the next
+                            // (locked) day while a completed session is still on screen.
+                            LaunchedEffect(
+                                showSession,
+                                selectedSessionId,
+                                effectiveSessionId,
+                                postCompleteFlow
+                            ) {
+                                if (!showSession || postCompleteFlow != null) return@LaunchedEffect
+                                val sid = selectedSessionId ?: effectiveSessionId ?: return@LaunchedEffect
+                                if (selectedSessionId == null &&
+                                    sessionUi is net.lampstandapp.app.formation.SessionUi.Content
+                                ) {
+                                    return@LaunchedEffect
                                 }
+                                formationVm.loadSession(sid)
                             }
                             val liveSession = (sessionUi as? net.lampstandapp.app.formation.SessionUi.Content)?.session
                             val sessionLoadError =
@@ -842,6 +856,20 @@ fun LampStandApp(
                                             },
                                             onRestartConfirm = {
                                                 formationVm.resetUserJourney(openedPathId ?: home?.pathId) { r ->
+                                                    r.onSuccess {
+                                                        // Fresh journey: drop any stale
+                                                        // session/availability state left
+                                                        // over from the old run.
+                                                        sessionAvailabilityMessage = null
+                                                        sessionAvailabilityNextDay = 0
+                                                        sessionError = null
+                                                        selectedSessionId = null
+                                                        showSession = false
+                                                        postCompleteFlow = null
+                                                        journeySection = 0
+                                                        sessionOpenedAt = null
+                                                        showRestartDialog = false
+                                                    }
                                                     r.onFailure {
                                                         authError(it.message ?: "Couldn't restart journey")
                                                     }
@@ -1088,6 +1116,27 @@ fun LampStandApp(
                                                 message = sessionError,
                                                 loading = sessionUi is net.lampstandapp.app.formation.SessionUi.Loading
                                             )
+                                            val sessionTotalDays = (overviewForSession?.totalDays
+                                                ?: home?.totalDays ?: 7.0).toInt()
+                                            // A "come back tomorrow" note is only valid
+                                            // while the next day is really locked. Once
+                                            // the unlock time passes (the user waited, the
+                                            // reminder fired), drop the stale note so it
+                                            // cannot keep painting "Session unavailable"
+                                            // over today's session. Notes about the path
+                                            // being finished (nextDay > totalDays) stay.
+                                            if (sessionAvailabilityMessage != null &&
+                                                sessionAvailabilityNextDay in 1..sessionTotalDays &&
+                                                overviewForSession?.startedAt != null &&
+                                                !net.lampstandapp.app.journey.isNextSessionLocked(
+                                                    nextDayNumber = sessionAvailabilityNextDay,
+                                                    totalDays = sessionTotalDays,
+                                                    startedAtMillis = overviewForSession?.startedAt?.toLong()
+                                                )
+                                            ) {
+                                                sessionAvailabilityMessage = null
+                                                sessionAvailabilityNextDay = 0
+                                            }
                                             // Today's session is done and the next day is
                                             // still locked: the dialog explains the wait and
                                             // the reminder instead of the bare screen. It
@@ -1100,8 +1149,7 @@ fun LampStandApp(
                                                     !ServiceLocator.isPathComplete() &&
                                                     net.lampstandapp.app.journey.isNextSessionLocked(
                                                         nextDayNumber = sessionAvailabilityNextDay,
-                                                        totalDays = (overviewForSession?.totalDays
-                                                            ?: home?.totalDays ?: 7.0).toInt(),
+                                                        totalDays = sessionTotalDays,
                                                         startedAtMillis = overviewForSession?.startedAt?.toLong()
                                                     )
                                             when {
@@ -1192,9 +1240,25 @@ fun LampStandApp(
                                                     onRestart = {
                                                         showRestartDialog = false
                                                         sessionOpenedAt = System.currentTimeMillis()
+                                                        // Drop yesterday's "come back
+                                                        // tomorrow" note and any stale
+                                                        // error, or the restart lands
+                                                        // back on the unavailable screen.
+                                                        sessionAvailabilityMessage = null
+                                                        sessionAvailabilityNextDay = 0
+                                                        sessionError = null
+                                                        // After a process restart the VM
+                                                        // is fresh (liveSession == null) —
+                                                        // fall back to the backend's id so
+                                                        // the load effect still fires.
                                                         selectedSessionId = liveSession?.sessionId
+                                                            ?: liveSession?._id
+                                                            ?: effectiveSessionId
                                                         showSession = true
                                                         journeySection = 0
+                                                        selectedSessionId?.let { id ->
+                                                            formationVm.loadSession(id)
+                                                        }
                                                     },
                                                     onDismiss = {
                                                         showRestartDialog = false
