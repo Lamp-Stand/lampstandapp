@@ -306,7 +306,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
         // Only count delivery when a notification was actually posted —
         // early returns (no permission, session done, etc.) must not bump
-        // lastReminderAt.
+        // the delivery timestamp.
         if (ReminderScheduler.showNotification(context)) {
             ServiceLocator.recordReminderDelivered()
         }

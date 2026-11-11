@@ -45,7 +45,7 @@ object ReminderCalculator {
                 val candidate = cal.timeInMillis
                 if (candidate > now && candidate < best) best = candidate
             }
-            if (best != Long.MAX_VALUE) return clampToQuietHours(best, now)
+            if (best != Long.MAX_VALUE) return clampToQuietHours(best)
         }
 
         // Nothing left today (or skipToday): earliest phase tomorrow.
@@ -59,46 +59,14 @@ object ReminderCalculator {
             cal.set(Calendar.MILLISECOND, 0)
             if (cal.timeInMillis < best) best = cal.timeInMillis
         }
-        return clampToQuietHours(best, now)
-    }
-
-    /**
-     * Legacy chain calculation (kept for compatibility): next reminder from
-     * [lastDeliveredAt] + 5 hours, or the [anchorHour]:[anchorMinute] anchor
-     * on today (or tomorrow if already passed), clamped to quiet hours.
-     */
-    fun calculateNextTrigger(
-        now: Long,
-        lastDeliveredAt: Long?,
-        anchorHour: Int,
-        anchorMinute: Int
-    ): Long {
-        val intervalMs = 5L * 60 * 60 * 1000
-        val cal = Calendar.getInstance()
-
-        var baseMillis: Long
-        if (lastDeliveredAt == null) {
-            cal.timeInMillis = now
-            cal.set(Calendar.HOUR_OF_DAY, anchorHour)
-            cal.set(Calendar.MINUTE, anchorMinute)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
-            baseMillis = cal.timeInMillis
-            if (baseMillis <= now) {
-                cal.add(Calendar.DAY_OF_MONTH, 1)
-                baseMillis = cal.timeInMillis
-            }
-        } else {
-            baseMillis = lastDeliveredAt + intervalMs
-        }
-        return clampToQuietHours(baseMillis, now)
+        return clampToQuietHours(best)
     }
 
     /**
      * Defers to 5:00 AM the same day if [candidate] is before 5:00 AM,
      * or to 5:00 AM the next day if it is after 11:00 PM.
      */
-    private fun clampToQuietHours(candidate: Long, reference: Long): Long {
+    private fun clampToQuietHours(candidate: Long): Long {
         val cal = Calendar.getInstance()
 
         val startOfDay = Calendar.getInstance()

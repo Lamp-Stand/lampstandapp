@@ -69,9 +69,6 @@ data class OnboardingData(
     val phoneE164: String?,
     val spiritualSeason: String,
     val studyTimePreference: String,
-    /** Local-only clock time for the mobile notification; backend still gets only the slot above. */
-    val reminderHour: Int,
-    val reminderMinute: Int,
     /** All four independent period times (index = period 0..3), window-validated. */
     val reminderTimes: List<Pair<Int, Int>> = emptyList(),
     val contactPreference: String = "email",
@@ -370,7 +367,6 @@ fun OnboardingProfileScreen(
                     text = if (isLoading) "Starting…" else "Start My Journey",
                     onClick = {
                         val tz = try { java.util.TimeZone.getDefault().id ?: "UTC" } catch (_: Exception) { "UTC" }
-                        val (rh, rm) = times[time] ?: (6 to 45)
                         // All four independent period times, index = period 0..3.
                         val allTimes = Times.map { t ->
                             times[t.value] ?: (t.defaultHour to t.defaultMinute)
@@ -382,8 +378,6 @@ fun OnboardingProfileScreen(
                                 phoneE164 = buildPhoneE164(country.dial, phone),
                                 spiritualSeason = season ?: return@LampButton,
                                 studyTimePreference = time,
-                                reminderHour = rh,
-                                reminderMinute = rm,
                                 reminderTimes = allTimes,
                                 contactPreference = "email",
                                 timezone = tz

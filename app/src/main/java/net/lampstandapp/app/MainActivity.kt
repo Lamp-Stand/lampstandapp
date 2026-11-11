@@ -476,8 +476,6 @@ fun LampStandApp(
                                                 studyTimePreference = data.studyTimePreference,
                                                 contactPreference = data.contactPreference,
                                                 timezone = data.timezone,
-                                                reminderHour = data.reminderHour,
-                                                reminderMinute = data.reminderMinute,
                                                 reminderTimes = data.reminderTimes
                                             ).onSuccess {
                                                 onboardingDone = true
