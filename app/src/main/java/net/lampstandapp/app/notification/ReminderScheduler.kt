@@ -226,7 +226,8 @@ object ReminderScheduler {
         }
     }
 
-    fun showNotification(context: Context) {
+    /** Returns true only when a notification was actually posted. */
+    fun showNotification(context: Context): Boolean {
         Log.d("ReminderReceiver", "Attempting to show notification")
 
         ServiceLocator.init(context)
@@ -235,19 +236,20 @@ object ReminderScheduler {
                 context,
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) return
+            if (!granted) return false
         }
-        if (!ServiceLocator.hasConvexSession()) return
-        if (ServiceLocator.isPathComplete()) return
-        if (ServiceLocator.todaySessionCompleted()) return
+        if (!ServiceLocator.hasConvexSession()) return false
+        if (ServiceLocator.isPathComplete()) return false
+        if (ServiceLocator.todaySessionCompleted()) return false
 
         val messages = ReminderMessages.pool(appOpenedToday = ServiceLocator.appOpenedToday())
-        if (messages.isEmpty()) return
+        if (messages.isEmpty()) return false
         val message = messages[ServiceLocator.nextReminderMessageIndex(messages.size)]
         ensureChannel(context)
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(MainActivity.EXTRA_OPEN_JOURNEY, true)
         }
         val openApp = PendingIntent.getActivity(
             context,
@@ -266,13 +268,14 @@ object ReminderScheduler {
             .setContentIntent(openApp)
             .build()
 
-        try {
+        return try {
             val notificationId = Calendar.getInstance().let {
                 NOTIFICATION_ID + it.get(Calendar.HOUR_OF_DAY)
             }
             NotificationManagerCompat.from(context).notify(notificationId, notification)
+            true
         } catch (_: SecurityException) {
-            // best-effort
+            false
         }
     }
 }
@@ -299,9 +302,13 @@ class ReminderReceiver : BroadcastReceiver() {
         // tomorrow without touching the other three pending alarms.
         val slot = intent?.getIntExtra(ReminderScheduler.EXTRA_SLOT_KEY, -1) ?: -1
         ReminderScheduler.clearFiredSlot(context, slot)
-
-        ServiceLocator.recordReminderDelivered()
         ReminderScheduler.sync(context)
-        ReminderScheduler.showNotification(context)
+
+        // Only count delivery when a notification was actually posted —
+        // early returns (no permission, session done, etc.) must not bump
+        // lastReminderAt.
+        if (ReminderScheduler.showNotification(context)) {
+            ServiceLocator.recordReminderDelivered()
+        }
     }
 }

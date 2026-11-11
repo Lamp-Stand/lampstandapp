@@ -5,8 +5,10 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -92,6 +94,11 @@ class MainActivity : ComponentActivity() {
         intent?.data?.takeIf { it.host == "donation-return" }?.let {
             donationReturn.value = it
         }
+        // Notification tap → Journey dashboard (cold start).
+        if (intent?.getBooleanExtra(EXTRA_OPEN_JOURNEY, false) == true) {
+            openJourneyRequest.value = true
+            intent.removeExtra(EXTRA_OPEN_JOURNEY)
+        }
 
         setContent {
             LampStandApp()
@@ -106,6 +113,11 @@ class MainActivity : ComponentActivity() {
         }
         intent.data?.takeIf { it.host == "donation-return" }?.let {
             donationReturn.value = it
+        }
+        // Notification tap → Journey dashboard (warm start / singleTask).
+        if (intent.getBooleanExtra(EXTRA_OPEN_JOURNEY, false)) {
+            openJourneyRequest.value = true
+            intent.removeExtra(EXTRA_OPEN_JOURNEY)
         }
     }
 
@@ -163,17 +175,42 @@ class MainActivity : ComponentActivity() {
         val notificationsAllowed =
             NotificationManagerCompat.from(this).areNotificationsEnabled()
         if (!notificationsAllowed) {
-            // Tell the user to enable notifications in app settings.
+            // Reminders are configured but the OS blocks them — send the user
+            // to this app's notification settings so they can enable them.
+            // onResume will re-sync once they come back with notifications on.
+            openNotificationSettings()
             return
         }
         ReminderScheduler.sync(this)
     }
 
+    private fun openNotificationSettings() {
+        try {
+            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            // best-effort — some OEMs strip this activity
+        }
+    }
+
     companion object {
+        /** Intent extra set by reminder notifications; opens the Journey dashboard. */
+        const val EXTRA_OPEN_JOURNEY = "lampstand.open_journey"
         /** ?code= captured from the OAuth deep link; consumed once by LampStandApp. */
         val oauthCode = androidx.compose.runtime.mutableStateOf<String?>(null)
         /** Flutterwave return deep link; consumed once by LampStandApp. */
         val donationReturn = androidx.compose.runtime.mutableStateOf<android.net.Uri?>(null)
+        /** True when a notification asked for the Journey dashboard; consumed once signed in. */
+        val openJourneyRequest = androidx.compose.runtime.mutableStateOf(false)
     }
 }
 
@@ -582,8 +619,26 @@ fun LampStandApp(
                                 else -> emptyList()
                             }
                             // Web parity: users:me firstName + paths:getHomeState branches.
-                            val homeContent = (homeUi as? net.lampstandapp.app.formation.HomeUi.Content)
+                            val homeContent = homeUi as? net.lampstandapp.app.formation.HomeUi.Content
                             val home = homeContent?.home
+                            // Notification tap: land on the Journey dashboard once
+                            // signed in (same one-shot pattern as oauthCode).
+                            val pendingOpenJourney by MainActivity.openJourneyRequest
+                            LaunchedEffect(pendingOpenJourney) {
+                                if (!pendingOpenJourney) return@LaunchedEffect
+                                MainActivity.openJourneyRequest.value = false
+                                showSession = false
+                                showJourneyDashboard = true
+                                journeyDashboardFromPaths = false
+                                postCompleteFlow = null
+                                journeySection = 0
+                                selectedSessionId = null
+                                sessionError = null
+                                sessionAvailabilityMessage = null
+                                openedPathId = home?.pathId
+                                selectedTab = 2
+                                home?.pathId?.let { formationVm.loadOverview(it) }
+                            }
                             // The Home CTA must only open a session Convex has
                             // actually marked available. Load the overview for the
                             // active path so the CTA can check that lock status.
